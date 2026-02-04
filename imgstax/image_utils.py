@@ -53,11 +53,46 @@ def validate_image_dimensions(images: List[Path]) -> Tuple[int, int]:
     return dimensions
 
 
+def apply_gradient_weights(images_arrays: list, gradient: bool = False) -> numpy.ndarray:
+    """Apply gradient weights to image arrays for comet tail effect.
+
+    Args:
+        images_arrays: List of numpy arrays (images)
+        gradient: If True, apply progressive weighting
+
+    Returns:
+        Weighted composite image as numpy array
+    """
+    if not gradient or len(images_arrays) == 1:
+        # No gradient, use maximum (most common case)
+        return numpy.amax(images_arrays, axis=0)
+
+    # Apply exponential decay weights: newest=1.0, progressively decrease
+    # Using decay factor of 0.85 for smooth gradient
+    decay_factor = 0.85
+    num_images = len(images_arrays)
+
+    # Convert to float for weighted operations
+    weighted_sum = numpy.zeros_like(images_arrays[0], dtype=numpy.float64)
+    total_weight = 0.0
+
+    for i, img_array in enumerate(images_arrays):
+        # Calculate weight: newest (last) = 1.0, older frames decay exponentially
+        weight = decay_factor ** (num_images - 1 - i)
+        weighted_sum += img_array.astype(numpy.float64) * weight
+        total_weight += weight
+
+    # Normalize and convert back to uint8
+    result = weighted_sum / total_weight
+    return numpy.uint8(numpy.clip(result, 0, 255))
+
+
 def stack_images(images: Union[Tuple[Path, ...], List[Path]],
                  output: Path,
                  stack_func: Callable,
                  dryrun: bool,
-                 quality: int = 95) -> None:
+                 quality: int = 95,
+                 gradient: bool = False) -> None:
     """Stack multiple images into one using the specified function.
 
     Args:
@@ -66,11 +101,14 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         stack_func: NumPy function to use for stacking (e.g., numpy.amax)
         dryrun: If True, skip actual image processing
         quality: JPEG quality (1-100)
+        gradient: If True, apply gradient weighting (comet tail effect)
 
     Raises:
         OSError: If unable to read/write image files
     """
     logger.info("Stacking %d images to %s", len(images), output)
+    if gradient:
+        logger.debug("Using gradient weighting for comet tail effect")
 
     first_image = images[0] if isinstance(images, list) else images[0]
     ext = first_image.suffix[1:].lower()
@@ -84,8 +122,14 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
     logger.info("Image format '%s' mapped from extension '%s'", img_format, ext)
 
     if not dryrun:
-        images = [numpy.array(Image.open(img)) for img in images]
-        stacked = numpy.uint8(stack_func(images, axis=0))
+        images_arrays = [numpy.array(Image.open(img)) for img in images]
+
+        # Apply gradient weighting if enabled
+        if gradient:
+            stacked = apply_gradient_weights(images_arrays, gradient=True)
+        else:
+            stacked = numpy.uint8(stack_func(images_arrays, axis=0))
+
         newimg = Image.fromarray(stacked)
 
         # Save with appropriate options based on format

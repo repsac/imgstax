@@ -17,6 +17,7 @@ class StackConfig:
     step: int = 1
     trail_length: int = 0
     fade_out: bool = False
+    trail_gradient: bool = False
     dryrun: bool = False
     quality: int = 95
     logfile: bool = False
@@ -41,6 +42,9 @@ class StackConfig:
 
         if self.start is not None and self.start < 0:
             raise ValueError(f"Start frame must be non-negative, got: {self.start}")
+
+        if self.trail_gradient and self.trail_length == 0:
+            raise ValueError("Trail gradient requires trail_length > 0")
 
     def to_dict(self) -> dict:
         """Convert config to dictionary for JSON serialization.
