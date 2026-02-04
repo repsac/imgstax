@@ -5,11 +5,15 @@ name: "Bird Murmurations"
 description: "Medium trail length for capturing graceful bird flock movements"
 
 settings:
-  # Maximum stacking to capture all bird positions
-  stacking: maximum
+  # Use minimum stacking for dark birds against bright sky
+  # Note: Use maximum if birds are bright against dark background
+  stacking: minimum
 
   # Medium trail length for fluid motion without overcrowding
   trail_length: 15
+
+  # Gradient creates smooth comet tail effect
+  trail_gradient: true
 
   # Fade out for clean ending
   fade_out: true

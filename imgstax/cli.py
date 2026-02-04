@@ -111,6 +111,10 @@ def main() -> None:
                         action=argparse.BooleanOptionalAction,
                         help="Fade out the trails, only works with trail length")
 
+    parser.add_argument('-g', '--trail-gradient',
+                        action=argparse.BooleanOptionalAction,
+                        help="Apply gradient to trail (comet tail effect - older frames fade progressively)")
+
     parser.add_argument('-q', '--quality',
                         type=int,
                         default=95,
@@ -191,6 +195,7 @@ def main() -> None:
         step=get_setting(args.step, 'step', 1),
         trail_length=get_setting(args.trail_length if args.trail_length != 0 else None, 'trail_length', 0),
         fade_out=get_setting(args.fade_out, 'fade_out', False),
+        trail_gradient=get_setting(args.trail_gradient, 'trail_gradient', False),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
         quality=get_setting(args.quality if args.quality != 95 else None, 'quality', 95),
         logfile=get_setting(args.logfile, 'logfile', False)

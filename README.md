@@ -8,11 +8,12 @@ A powerful Python tool for stacking image sequences using various mathematical o
 - **Multiple Stacking Algorithms**: maximum, minimum, mean, median, standard deviation, summation, variance, and range
 - **Progressive Stacking**: Creates a sequence where each frame is a stack of all previous frames
 - **Trail Control**: Limit trail length for sliding window effects
+- **Trail Gradient**: Comet tail effect with progressive fade along the trail
 - **Fade Out**: Gradually fade trails at the end of sequences
 - **Frame Selection**: Start, stop, and step parameters for selective processing
 - **Dry Run Mode**: Test operations without creating output files
 
-### Enhanced Features (v2.0)
+### Enhanced Features (v2.0+)
 - **Type Hints**: Full type annotations for better IDE support
 - **pathlib Support**: Modern Path-based file handling
 - **Progress Bars**: Optional tqdm integration for visual progress (install with `pip install tqdm`)
@@ -21,6 +22,9 @@ A powerful Python tool for stacking image sequences using various mathematical o
 - **Better Error Messages**: Comprehensive error reporting
 - **Modular Architecture**: Clean, maintainable codebase
 - **Configuration Validation**: Early detection of invalid parameters
+- **Recipe System**: YAML-based presets for common use cases (v2.1)
+- **Trail Gradient**: Weighted blending for comet tail effects (v2.1)
+- **Auto-prefix Exports**: Prevents accidental git commits of exports (v2.1)
 
 ## Installation
 
@@ -40,6 +44,7 @@ Required:
 - Python >= 3.8
 - numpy >= 1.20.0
 - Pillow >= 8.0.0
+- PyYAML >= 5.4.0 (for recipe system)
 
 Optional:
 - tqdm >= 4.60.0 (for progress bars)
@@ -95,6 +100,16 @@ imgstax /path/to/images --start 100 --stop 500 -o selected_range
 imgstax /path/to/images -q 98 -o high_quality
 ```
 
+**Comet Tail Effect (Trail Gradient)**
+```bash
+imgstax /path/to/images -t 20 -g -o comet_effect
+```
+
+**Bird Murmurations**
+```bash
+imgstax /path/to/bird_images -s minimum -t 15 -g -o murmurations
+```
+
 ## Recipes & Presets
 
 Recipes are pre-configured settings for common use cases. No need to memorize CLI arguments!
@@ -120,14 +135,14 @@ python -m imgstax --list-recipes
 
 ### Built-in Recipes
 
-| Recipe | Stacking | Trail | Best For |
-|--------|----------|-------|----------|
-| **stars** | maximum | 30 | Star trails, astrophotography |
-| **murmurations** | maximum | 15 | Bird flocks, fluid motion |
-| **traffic** | maximum | 20 | Vehicle light trails |
-| **timelapse** | mean | 5 | Time-lapse with motion blur |
-| **fireworks** | maximum | 10 | Firework composites |
-| **noise-reduction** | mean | 0 | Noise reduction averaging |
+| Recipe | Stacking | Trail | Gradient | Best For |
+|--------|----------|-------|----------|----------|
+| **stars** | maximum | 30 | Yes | Star trails, astrophotography |
+| **murmurations** | minimum | 15 | Yes | Bird flocks, dark objects in motion |
+| **traffic** | maximum | 20 | Yes | Vehicle light trails |
+| **timelapse** | mean | 5 | No | Time-lapse with motion blur |
+| **fireworks** | maximum | 10 | No | Firework composites |
+| **noise-reduction** | mean | 0 | No | Noise reduction averaging |
 
 ### Overriding Recipe Settings
 
@@ -183,6 +198,7 @@ options:
   --step N              Process every Nth frame
   -t, --trail-length N  Limit the length of the trails
   -f, --fade-out        Fade out the trails (requires trail-length)
+  -g, --trail-gradient  Apply gradient weighting for comet tail effect (requires trail-length)
   -q, --quality N       JPEG quality 1-100 (default: 95)
 ```
 
@@ -197,6 +213,34 @@ options:
 - `variance`: Variance (statistical analysis)
 - `range`: Range between max and min (contrast analysis)
 
+## Advanced Features
+
+### Trail Gradient (Comet Tail Effect)
+
+The `--trail-gradient` option creates a comet tail effect where the trail progressively fades along its length, with the newest frame at full intensity and older frames gradually decreasing.
+
+**How it works:**
+- Uses exponential decay weighting (0.85 decay factor)
+- Newest frame: 100% intensity
+- Older frames: progressively reduced intensity
+- Creates smooth, natural-looking motion trails
+
+**Best used with:**
+- Star trails for smooth gradient effect
+- Traffic light trails for realistic tails
+- Any motion where you want progressive fade
+
+**Example:**
+```bash
+# Stars with smooth gradient trails
+imgstax star_images/ -t 30 -g --recipe stars
+
+# Traffic with comet tail effect
+imgstax traffic_images/ -t 20 -g -s maximum
+```
+
+**Note:** Requires `--trail-length` to be set (> 0).
+
 ## Supported Image Formats
 
 - JPEG (.jpg, .jpeg)
@@ -210,7 +254,7 @@ from pathlib import Path
 from imgstax import StackConfig, stack
 import numpy
 
-# Create configuration
+# Basic configuration
 config = StackConfig(
     input_path=Path('/path/to/images'),
     output_path=Path('/path/to/output'),
@@ -222,6 +266,20 @@ config = StackConfig(
 )
 
 # Run stacking
+stack(config)
+
+# Advanced: Bird murmurations with gradient
+config = StackConfig(
+    input_path=Path('/path/to/bird_images'),
+    output_path=Path('/path/to/output'),
+    stacking_func=numpy.amin,  # minimum for dark objects
+    stacking_name='minimum',
+    trail_length=15,
+    trail_gradient=True,  # Comet tail effect
+    fade_out=True,
+    quality=90
+)
+
 stack(config)
 ```
 
@@ -273,7 +331,16 @@ imgstax/
 │   ├── config.py            # Configuration dataclass
 │   ├── core.py              # Main stacking logic
 │   ├── image_utils.py       # Image processing utilities
-│   └── file_utils.py        # File I/O operations
+│   ├── file_utils.py        # File I/O operations
+│   ├── recipe_loader.py     # Recipe/preset system
+│   └── recipes/             # Built-in recipe presets
+│       ├── README.md        # Recipe documentation
+│       ├── stars.yaml       # Star trails recipe
+│       ├── murmurations.yaml # Bird murmurations recipe
+│       ├── traffic.yaml     # Traffic light trails recipe
+│       ├── timelapse.yaml   # Time-lapse recipe
+│       ├── fireworks.yaml   # Fireworks recipe
+│       └── noise-reduction.yaml # Noise reduction recipe
 ├── utils/                   # Video creation utilities
 │   ├── create_video.py      # Cross-platform Python script
 │   ├── create_video.sh      # Bash script (macOS/Linux)
@@ -330,7 +397,15 @@ imgstax/
 
 ## Version History
 
-### v2.0.0 (Current)
+### v2.1.0 (Current)
+- **Recipe System**: YAML-based presets for common use cases
+- **Trail Gradient**: Comet tail effect with exponential decay weighting
+- **Auto-prefix Exports**: Prevents accidental git commits with 'export_' prefix
+- **Enhanced Recipes**: Built-in presets for stars, murmurations, traffic, timelapse, fireworks, noise reduction
+- **Video Creation**: Cross-platform utilities for compiling stacked images into videos
+- **Improved Fade-Out**: Dynamic trail reduction in final frames
+
+### v2.0.0
 - Complete modular refactor
 - Added type hints throughout
 - Migrated to pathlib
@@ -351,12 +426,14 @@ MIT License - see file header for full text
 ## Contributing
 
 Contributions welcome! Areas for future development:
-- Video input/output support
+- Direct video input/output support (currently requires pre-extraction)
 - Parallel processing for speed improvements
 - Resume capability for interrupted processes
 - GUI interface
 - Additional stacking algorithms
 - Batch directory processing
+- Real-time preview mode
+- Automatic optimal parameter detection
 
 ## Author
 
