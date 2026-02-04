@@ -1,0 +1,31 @@
+# Bird Murmurations Recipe
+# Optimized for capturing fluid motion of bird flocks
+
+name: "Bird Murmurations"
+description: "Medium trail length for capturing graceful bird flock movements"
+
+settings:
+  # Maximum stacking to capture all bird positions
+  stacking: maximum
+
+  # Medium trail length for fluid motion without overcrowding
+  trail_length: 15
+
+  # Fade out for clean ending
+  fade_out: true
+
+  # High quality for detail
+  quality: 90
+
+  # Process all frames
+  step: 1
+
+# Tips:
+#   - Works well with video extracted as image sequences
+#   - Adjust trail_length based on bird speed (faster = shorter trail)
+#   - Use higher frame rates (60fps source) for smoother trails
+
+# Usage examples:
+#   python -m imgstax bird_images/ --recipe murmurations
+#   python -m imgstax bird_images/ --recipe murmurations -t 20  # Longer trails
+#   python -m imgstax bird_images/ --recipe murmurations --step 2  # Skip frames

@@ -1,0 +1,31 @@
+# Traffic Light Trails Recipe
+# Optimized for capturing vehicle light trails
+
+name: "Traffic Light Trails"
+description: "Maximum stacking for bright, continuous light trails from traffic"
+
+settings:
+  # Maximum to capture all light
+  stacking: maximum
+
+  # Medium-long trails for vehicle movement
+  trail_length: 20
+
+  # Fade out for smooth ending
+  fade_out: true
+
+  # High quality for crisp light trails
+  quality: 92
+
+  # Process all frames
+  step: 1
+
+# Tips:
+#   - Best with stationary camera on tripod
+#   - Works great at dusk/night
+#   - Adjust trail_length based on traffic speed
+
+# Usage examples:
+#   python -m imgstax traffic_images/ --recipe traffic
+#   python -m imgstax traffic_images/ --recipe traffic -t 40  # Longer highways
+#   python -m imgstax traffic_images/ --recipe traffic -t 10  # City streets

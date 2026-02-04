@@ -1,0 +1,31 @@
+# Fireworks Recipe
+# Optimized for capturing multiple firework bursts in one frame
+
+name: "Fireworks"
+description: "Maximum stacking to combine multiple firework bursts"
+
+settings:
+  # Maximum to capture all light from explosions
+  stacking: maximum
+
+  # Medium trail to capture burst expansion
+  trail_length: 10
+
+  # No fade out - keep all bursts
+  fade_out: false
+
+  # High quality for vibrant colors
+  quality: 95
+
+  # Process all frames to catch every burst
+  step: 1
+
+# Tips:
+#   - Use tripod for alignment
+#   - Adjust trail_length for burst size/duration
+#   - Works great for combining multiple shows into one composite
+
+# Usage examples:
+#   python -m imgstax fireworks_images/ --recipe fireworks
+#   python -m imgstax fireworks_images/ --recipe fireworks -t 15  # Larger bursts
+#   python -m imgstax fireworks_images/ --recipe fireworks -t 5   # Quick bursts
