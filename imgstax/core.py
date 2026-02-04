@@ -138,4 +138,4 @@ def stack(config: StackConfig) -> None:
                 logger.info("Stacking %s with %d: %s", stacked_images[-2], index, image)
             subset_images = (stacked_images[-2], image)
 
-        stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.trail_gradient)
+        stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.trail_gradient, config.gradient_decay, config.gradient_plateau)

@@ -115,6 +115,16 @@ def main() -> None:
                         action=argparse.BooleanOptionalAction,
                         help="Apply gradient to trail (comet tail effect - older frames fade progressively)")
 
+    parser.add_argument('--gradient-decay',
+                        type=float,
+                        default=0.85,
+                        help="Decay rate for gradient (0.0-1.0, default: 0.85). Higher = slower fade, lower = faster fade")
+
+    parser.add_argument('--gradient-plateau',
+                        type=int,
+                        default=0,
+                        help="Number of newest frames at full intensity before decay begins (default: 0)")
+
     parser.add_argument('-q', '--quality',
                         type=int,
                         default=95,
@@ -196,6 +206,8 @@ def main() -> None:
         trail_length=get_setting(args.trail_length if args.trail_length != 0 else None, 'trail_length', 0),
         fade_out=get_setting(args.fade_out, 'fade_out', False),
         trail_gradient=get_setting(args.trail_gradient, 'trail_gradient', False),
+        gradient_decay=get_setting(args.gradient_decay if args.gradient_decay != 0.85 else None, 'gradient_decay', 0.85),
+        gradient_plateau=get_setting(args.gradient_plateau if args.gradient_plateau != 0 else None, 'gradient_plateau', 0),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
         quality=get_setting(args.quality if args.quality != 95 else None, 'quality', 95),
         logfile=get_setting(args.logfile, 'logfile', False)

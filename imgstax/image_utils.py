@@ -53,12 +53,17 @@ def validate_image_dimensions(images: List[Path]) -> Tuple[int, int]:
     return dimensions
 
 
-def apply_gradient_weights(images_arrays: list, gradient: bool = False) -> numpy.ndarray:
+def apply_gradient_weights(images_arrays: list,
+                          gradient: bool = False,
+                          decay_factor: float = 0.85,
+                          plateau: int = 0) -> numpy.ndarray:
     """Apply gradient weights to image arrays for comet tail effect.
 
     Args:
         images_arrays: List of numpy arrays (images)
         gradient: If True, apply progressive weighting
+        decay_factor: Exponential decay rate (0.0-1.0, default 0.85)
+        plateau: Number of newest frames at full intensity before decay (default 0)
 
     Returns:
         Weighted composite image as numpy array
@@ -67,9 +72,6 @@ def apply_gradient_weights(images_arrays: list, gradient: bool = False) -> numpy
         # No gradient, use maximum (most common case)
         return numpy.amax(images_arrays, axis=0)
 
-    # Apply exponential decay weights: newest=1.0, progressively decrease
-    # Using decay factor of 0.85 for smooth gradient
-    decay_factor = 0.85
     num_images = len(images_arrays)
 
     # Convert to float for weighted operations
@@ -77,8 +79,17 @@ def apply_gradient_weights(images_arrays: list, gradient: bool = False) -> numpy
     total_weight = 0.0
 
     for i, img_array in enumerate(images_arrays):
-        # Calculate weight: newest (last) = 1.0, older frames decay exponentially
-        weight = decay_factor ** (num_images - 1 - i)
+        # Calculate position from newest (0 = newest, num_images-1 = oldest)
+        position_from_newest = num_images - 1 - i
+
+        # Apply plateau: newest N frames get weight 1.0
+        if position_from_newest < plateau:
+            weight = 1.0
+        else:
+            # Apply exponential decay after plateau
+            decay_steps = position_from_newest - plateau
+            weight = decay_factor ** decay_steps
+
         weighted_sum += img_array.astype(numpy.float64) * weight
         total_weight += weight
 
@@ -92,7 +103,9 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
                  stack_func: Callable,
                  dryrun: bool,
                  quality: int = 95,
-                 gradient: bool = False) -> None:
+                 gradient: bool = False,
+                 gradient_decay: float = 0.85,
+                 gradient_plateau: int = 0) -> None:
     """Stack multiple images into one using the specified function.
 
     Args:
@@ -102,13 +115,16 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         dryrun: If True, skip actual image processing
         quality: JPEG quality (1-100)
         gradient: If True, apply gradient weighting (comet tail effect)
+        gradient_decay: Exponential decay rate for gradient (0.0-1.0, default 0.85)
+        gradient_plateau: Number of newest frames at full intensity (default 0)
 
     Raises:
         OSError: If unable to read/write image files
     """
     logger.info("Stacking %d images to %s", len(images), output)
     if gradient:
-        logger.debug("Using gradient weighting for comet tail effect")
+        logger.debug("Using gradient weighting for comet tail effect (decay=%.2f, plateau=%d)",
+                    gradient_decay, gradient_plateau)
 
     first_image = images[0] if isinstance(images, list) else images[0]
     ext = first_image.suffix[1:].lower()
@@ -126,7 +142,9 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
 
         # Apply gradient weighting if enabled
         if gradient:
-            stacked = apply_gradient_weights(images_arrays, gradient=True)
+            stacked = apply_gradient_weights(images_arrays, gradient=True,
+                                            decay_factor=gradient_decay,
+                                            plateau=gradient_plateau)
         else:
             stacked = numpy.uint8(stack_func(images_arrays, axis=0))
 
