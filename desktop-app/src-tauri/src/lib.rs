@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tauri::Emitter;
 
 /// Get the Python interpreter path.
@@ -205,6 +205,56 @@ print(len(images))
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct FileInfo {
+    index: usize,
+    filename: String,
+    path: String,
+}
+
+#[tauri::command]
+fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
+    // Escape the path properly for Python
+    let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
+
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(format!(r#"
+import sys
+import os
+import io
+import json
+from pathlib import Path
+# Redirect stdout to capture log messages
+real_stdout = sys.stdout
+sys.stdout = io.StringIO()
+# Import and run with stdout redirected
+sys.path.insert(0, os.getcwd())
+from imgstax.file_utils import find_input_images
+images = find_input_images(Path(r'{}'))
+# Restore stdout and print JSON
+sys.stdout = real_stdout
+files = []
+for idx, img in enumerate(images):
+    files.append({{"index": idx, "filename": img.name, "path": str(img)}})
+print(json.dumps(files))
+"#, escaped_path))
+        .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
+        .output()
+        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Python error: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<FileInfo> = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse file list: {}", e))?;
+
+    Ok(files)
+}
+
 #[tauri::command]
 async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<StackResult, String> {
     // Construct absolute output path
@@ -233,7 +283,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         config.stacking.clone(),
         "-q".to_string(),
         config.quality.to_string(),
-    ];
+    ]);
 
     if let Some(start_frame) = config.start_frame {
         base_args.push("--start-frame".to_string());
@@ -326,6 +376,7 @@ pub fn run() {
         get_app_version,
         get_recipes,
         validate_directory,
+        get_file_list,
         start_stacking,
         open_folder
     ])
