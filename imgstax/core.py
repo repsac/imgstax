@@ -76,13 +76,15 @@ def stack(config: StackConfig) -> None:
     config.validate()
 
     all_images = find_input_images(config.input_path)
-    images = all_images[config.start:config.stop:config.step]
+    # Use inclusive end_frame by adding 1 to the slice endpoint
+    end_idx = config.end_frame + 1 if config.end_frame is not None else None
+    images = all_images[config.start_frame:end_idx:config.frame_interval]
     total_images = len(images)
 
     if total_images == 0:
         raise ValueError(
-            f"No images remaining after applying slice [start={config.start}, "
-            f"stop={config.stop}, step={config.step}] to {len(all_images)} images"
+            f"No images remaining after applying slice [start_frame={config.start_frame}, "
+            f"end_frame={config.end_frame} (inclusive), frame_interval={config.frame_interval}] to {len(all_images)} images"
         )
 
     if total_images == 1:

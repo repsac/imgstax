@@ -99,17 +99,17 @@ def main() -> None:
                         action='store_true',
                         help="Output progress as JSON lines (for GUI integration)")
 
-    parser.add_argument('--start',
+    parser.add_argument('--start-frame',
                         type=int,
-                        help="In (start) frame to begin the stack with")
+                        help="First frame to include in stack (0-based, inclusive)")
 
-    parser.add_argument('--stop',
+    parser.add_argument('--end-frame',
                         type=int,
-                        help="Out (stop) frame to end the stack with")
+                        help="Last frame to include in stack (0-based, inclusive)")
 
-    parser.add_argument('--step',
+    parser.add_argument('--frame-interval',
                         type=int,
-                        help="Skip every nth frame in the image sequence")
+                        help="Process every nth frame (e.g., 2 = every other frame, 3 = every 3rd frame)")
 
     parser.add_argument('-t', '--trail-length',
                         type=int,
@@ -136,8 +136,8 @@ def main() -> None:
 
     parser.add_argument('-q', '--quality',
                         type=int,
-                        default=95,
-                        help="JPEG output quality (1-100, default: 95)")
+                        default=100,
+                        help="JPEG output quality (1-100, default: 100)")
 
     args = parser.parse_args()
 
@@ -213,16 +213,16 @@ def main() -> None:
         prefix=get_setting(args.prefix if args.prefix != PREFIX else None, 'prefix', PREFIX),
         stacking_func=stacking_func,
         stacking_name=stacking_name,
-        start=get_setting(args.start, 'start', None),
-        stop=get_setting(args.stop, 'stop', None),
-        step=get_setting(args.step, 'step', 1),
+        start_frame=get_setting(args.start_frame, 'start_frame', None),
+        end_frame=get_setting(args.end_frame, 'end_frame', None),
+        frame_interval=get_setting(args.frame_interval, 'frame_interval', 1),
         trail_length=get_setting(args.trail_length if args.trail_length != 0 else None, 'trail_length', 0),
         fade_out=get_setting(args.fade_out, 'fade_out', False),
         trail_gradient=get_setting(args.trail_gradient, 'trail_gradient', False),
         gradient_decay=get_setting(args.gradient_decay if args.gradient_decay != 0.85 else None, 'gradient_decay', 0.85),
         gradient_plateau=get_setting(args.gradient_plateau if args.gradient_plateau != 0 else None, 'gradient_plateau', 0),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
-        quality=get_setting(args.quality if args.quality != 95 else None, 'quality', 95),
+        quality=get_setting(args.quality if args.quality != 100 else None, 'quality', 100),
         logfile=get_setting(args.logfile, 'logfile', False),
         progress_json=args.progress_json
     )
