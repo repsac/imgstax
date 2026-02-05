@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>imgstax - Image Stacking Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="header">
+        <h1>imgstax</h1>
+        <div class="subtitle">Image Stacking Tool</div>
+        <div class="status" id="status-bar">✓ Tauri loaded</div>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="form-wrapper">
+                <div class="form-group">
+                <label for="inputDir">Input Directory</label>
+                <div class="directory-input">
+                    <input type="text" id="inputDir" placeholder="/path/to/images" readonly>
+                    <button class="secondary" id="browseInput">Browse...</button>
+                </div>
+                <div id="inputValidation" class="validation-message"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="outputDir">Output Directory</label>
+                <div class="directory-input">
+                    <input type="text" id="outputDir" placeholder="Select output directory" readonly>
+                    <button class="secondary" id="browseOutput">Browse...</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="prefix">Output Prefix</label>
+                <input type="text" id="prefix" value="stacked-">
+            </div>
+
+            <div class="section-title">Stacking & Format Options</div>
+
+            <div class="form-group">
+                <label for="stacking">Stacking Method</label>
+                <select id="stacking">
+                    <option value="maximum">Maximum (brightest)</option>
+                    <option value="minimum">Minimum (darkest)</option>
+                    <option value="mean">Mean (average)</option>
+                    <option value="median">Median</option>
+                </select>
+            </div>
+
+            <div id="formatOptionsSection" style="display: none;">
+                <div class="subsection-title">Image Format Settings</div>
+
+                <div class="grid">
+                    <div class="form-group" style="display: none;">
+                        <label for="quality">JPEG Quality (1-100)</label>
+                        <input type="number" id="quality" value="100" min="1" max="100">
+                    </div>
+
+                    <div class="form-group" style="display: none;">
+                        <label for="pngCompressLevel">PNG Compression (0-9)</label>
+                        <input type="number" id="pngCompressLevel" value="6" min="0" max="9">
+                    </div>
+
+                    <div class="form-group" style="display: none;">
+                        <label for="tiffCompression">TIFF Compression</label>
+                        <select id="tiffCompression">
+                            <option value="none">None</option>
+                            <option value="lzw">LZW</option>
+                            <option value="deflate" selected>Deflate (default)</option>
+                            <option value="jpeg">JPEG</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="section-divider">
+
+            <div class="section-title">Frame Selection</div>
+
+            <div class="grid">
+                <div class="form-group">
+                    <label for="startFrame">Start Frame (0-based, inclusive)</label>
+                    <input type="number" id="startFrame" placeholder="0" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label for="endFrame">End Frame (0-based, inclusive)</label>
+                    <input type="number" id="endFrame" placeholder="All frames" min="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="frameInterval">Frame Interval (process every nth frame)</label>
+                <input type="number" id="frameInterval" value="1" min="1">
+            </div>
+
+            <hr class="section-divider">
+
+            <div class="section-title">Trail Effects</div>
+
+            <div class="form-group">
+                <label for="trailLength">Trail Length (0 = all frames)</label>
+                <input type="number" id="trailLength" value="0" min="0">
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="trailGradient">
+                    <label for="trailGradient">Enable Trail Gradient (comet tail effect)</label>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="form-group">
+                    <label for="gradientDecay">Gradient Decay (0.0-1.0)</label>
+                    <input type="number" id="gradientDecay" value="0.85" min="0" max="1" step="0.05">
+                </div>
+
+                <div class="form-group">
+                    <label for="gradientPlateau">Gradient Plateau (frames at full intensity)</label>
+                    <input type="number" id="gradientPlateau" value="0" min="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="fadeOut">
+                    <label for="fadeOut">Fade Out (gradually reduce trail at end)</label>
+                </div>
+            </div>
+
+                <button id="startButton" disabled>Start Stacking</button>
+            </div>
+
+            <div class="file-browser-panel" id="fileBrowserPanel">
+                <div class="file-list-section">
+                    <div class="file-list-header">
+                        <span id="fileListTitle">No directory selected</span>
+                    </div>
+                    <div class="file-list" id="fileList">
+                        <div class="file-list-empty">Select an input directory to view files</div>
+                    </div>
+                </div>
+                <div class="file-preview-section">
+                    <div class="preview-header">Image Preview</div>
+                    <div class="preview-content" id="previewContent">
+                        <div class="preview-empty">Click an image to preview</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay"></div>
+    <div id="progressDialog">
+        <h2>Stacking Images</h2>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+        </div>
+        <div id="progressText">Initializing...</div>
+        <button id="openOutputButton" style="display: none; width: 100%;">Open Output Folder</button>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

@@ -18,7 +18,7 @@ A powerful Python tool for stacking image sequences using various mathematical o
 - **pathlib Support**: Modern Path-based file handling
 - **Progress Bars**: Optional tqdm integration for visual progress (install with `pip install tqdm`)
 - **Image Validation**: Automatic dimension validation prevents runtime errors
-- **Quality Control**: Adjustable JPEG quality and PNG optimization
+- **Quality Control**: Adjustable JPEG quality, PNG compression level, and TIFF compression formats
 - **Better Error Messages**: Comprehensive error reporting
 - **Modular Architecture**: Clean, maintainable codebase
 - **Configuration Validation**: Early detection of invalid parameters
@@ -199,7 +199,11 @@ options:
   -t, --trail-length N  Limit the length of the trails
   -f, --fade-out        Fade out the trails (requires trail-length)
   -g, --trail-gradient  Apply gradient weighting for comet tail effect (requires trail-length)
-  -q, --quality N       JPEG quality 1-100 (default: 95)
+  -q, --quality N       JPEG quality 1-100 (default: 100)
+  --png-compress-level N    PNG compression level 0-9 (default: 6)
+                            0=no compression, 9=maximum compression
+  --tiff-compression TYPE   TIFF compression method (default: deflate)
+                            Choices: none, lzw, deflate, jpeg
 ```
 
 ## Stacking Functions
@@ -246,6 +250,44 @@ imgstax traffic_images/ -t 20 -g -s maximum
 - JPEG (.jpg, .jpeg)
 - PNG (.png)
 - TIFF (.tif, .tiff)
+
+## Format-Specific Options
+
+### JPEG Quality
+Control JPEG output quality with `-q` or `--quality`:
+```bash
+imgstax images/ -q 95 -o high_quality_output
+```
+
+### PNG Compression
+Adjust PNG compression level with `--png-compress-level`:
+```bash
+# Maximum compression (slower, smaller files)
+imgstax images/ --png-compress-level 9 -o compressed_output
+
+# No compression (faster processing)
+imgstax images/ --png-compress-level 0 -o fast_output
+```
+
+Default is 6 (good balance). Range: 0-9.
+
+### TIFF Compression
+Choose TIFF compression method with `--tiff-compression`:
+```bash
+# Deflate compression (default, good balance)
+imgstax images/ --tiff-compression deflate -o output
+
+# LZW compression (universal compatibility)
+imgstax images/ --tiff-compression lzw -o output
+
+# JPEG compression (lossy, smaller files)
+imgstax images/ --tiff-compression jpeg -q 85 -o output
+
+# No compression (fastest, largest files)
+imgstax images/ --tiff-compression none -o output
+```
+
+Note: TIFF JPEG compression also uses the `--quality` parameter.
 
 ## Programmatic Usage
 
