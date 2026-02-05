@@ -12,16 +12,16 @@ class StackConfig:
     prefix: str = 'stacked-'
     stacking_func: Callable = numpy.amax
     stacking_name: str = 'maximum'
-    start: Optional[int] = None
-    stop: Optional[int] = None
-    step: int = 1
+    start_frame: Optional[int] = None
+    end_frame: Optional[int] = None
+    frame_interval: int = 1
     trail_length: int = 0
     fade_out: bool = False
     trail_gradient: bool = False
     gradient_decay: float = 0.85
     gradient_plateau: int = 0
     dryrun: bool = False
-    quality: int = 95
+    quality: int = 100
     logfile: bool = False
     progress_json: bool = False
 
@@ -37,14 +37,17 @@ class StackConfig:
         if self.trail_length < 0:
             raise ValueError(f"Trail length must be non-negative, got: {self.trail_length}")
 
-        if self.step < 1:
-            raise ValueError(f"Step must be at least 1, got: {self.step}")
+        if self.frame_interval < 1:
+            raise ValueError(f"Frame interval must be at least 1, got: {self.frame_interval}")
 
         if not 1 <= self.quality <= 100:
             raise ValueError(f"Quality must be between 1 and 100, got: {self.quality}")
 
-        if self.start is not None and self.start < 0:
-            raise ValueError(f"Start frame must be non-negative, got: {self.start}")
+        if self.start_frame is not None and self.start_frame < 0:
+            raise ValueError(f"Start frame must be non-negative, got: {self.start_frame}")
+
+        if self.end_frame is not None and self.end_frame < 0:
+            raise ValueError(f"End frame must be non-negative, got: {self.end_frame}")
 
         if self.trail_gradient and self.trail_length == 0:
             raise ValueError("Trail gradient requires trail_length > 0")

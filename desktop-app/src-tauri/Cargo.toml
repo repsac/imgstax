@@ -1,8 +1,8 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "imgstax-desktop"
+version = "1.0.0"
+description = "Desktop GUI for imgstax image stacking tool"
+authors = ["Ed Caspersen"]
 license = ""
 repository = ""
 edition = "2021"

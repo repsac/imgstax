@@ -23,6 +23,9 @@ struct StackConfig {
     output_path: String,
     prefix: String,
     stacking: String,
+    start_frame: Option<u32>,
+    end_frame: Option<u32>,
+    frame_interval: u32,
     trail_length: u32,
     trail_gradient: bool,
     gradient_decay: f32,
@@ -36,6 +39,11 @@ struct StackResult {
     success: bool,
     output_dir: String,
     error: Option<String>,
+}
+
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 #[tauri::command]
@@ -190,6 +198,21 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         config.quality.to_string(),
     ];
 
+    if let Some(start_frame) = config.start_frame {
+        args.push("--start-frame".to_string());
+        args.push(start_frame.to_string());
+    }
+
+    if let Some(end_frame) = config.end_frame {
+        args.push("--end-frame".to_string());
+        args.push(end_frame.to_string());
+    }
+
+    if config.frame_interval > 1 {
+        args.push("--frame-interval".to_string());
+        args.push(config.frame_interval.to_string());
+    }
+
     if config.trail_length > 0 {
         args.push("-t".to_string());
         args.push(config.trail_length.to_string());
@@ -263,6 +286,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
+        get_app_version,
         get_recipes,
         validate_directory,
         start_stacking,
