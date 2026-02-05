@@ -1,8 +1,7 @@
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
-const { getCurrentWindow } = window.__TAURI__.window;
-const { currentMonitor } = window.__TAURI__.window;
+const { getCurrentWindow, currentMonitor } = window.__TAURI__.window;
 
 let inputDirPath = '';
 let outputDirPath = '';
@@ -27,25 +26,97 @@ const fileListEl = document.getElementById('fileList');
 const fileListTitleEl = document.getElementById('fileListTitle');
 const previewContentEl = document.getElementById('previewContent');
 
+// Window position persistence
+function saveWindowPosition() {
+    const window = getCurrentWindow();
+
+    Promise.all([
+        window.outerPosition(),
+        window.outerSize(),
+        currentMonitor()
+    ]).then(([position, size, monitor]) => {
+        const windowState = {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            monitorName: monitor?.name || null,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('windowState', JSON.stringify(windowState));
+    }).catch(error => {
+        console.error('Failed to save window position:', error);
+    });
+}
+
+async function restoreWindowPosition() {
+    try {
+        const savedState = localStorage.getItem('windowState');
+        if (!savedState) {
+            return false; // No saved state, use default sizing
+        }
+
+        const state = JSON.parse(savedState);
+        const window = getCurrentWindow();
+
+        // Restore position and size
+        await window.setSize({ width: state.width, height: state.height });
+        await window.setPosition({ x: state.x, y: state.y });
+
+        return true; // Successfully restored
+    } catch (error) {
+        console.error('Failed to restore window position:', error);
+        return false;
+    }
+}
+
 // Initialize
 async function init() {
-    // Dynamically size window to 80% of screen height
-    try {
-        const monitor = await currentMonitor();
-        if (monitor && monitor.size) {
-            const screenHeight = monitor.size.height;
-            const targetHeight = Math.floor(screenHeight * 0.8);
+    // Try to restore saved window position first
+    const restored = await restoreWindowPosition();
 
-            // Maintain 1.5 aspect ratio (width:height = 3:2)
-            const targetWidth = Math.floor(targetHeight * 1.5);
+    // If no saved position, dynamically size window to 80% of screen height
+    if (!restored) {
+        try {
+            const monitor = await currentMonitor();
+            if (monitor && monitor.size) {
+                const screenHeight = monitor.size.height;
+                const targetHeight = Math.floor(screenHeight * 0.8);
 
-            const window = getCurrentWindow();
-            await window.setSize({ width: targetWidth, height: targetHeight });
-            await window.center();
+                // Maintain 1.5 aspect ratio (width:height = 3:2)
+                const targetWidth = Math.floor(targetHeight * 1.5);
+
+                const window = getCurrentWindow();
+                await window.setSize({ width: targetWidth, height: targetHeight });
+                await window.center();
+            }
+        } catch (error) {
+            console.error('Failed to resize window:', error);
         }
-    } catch (error) {
-        console.error('Failed to resize window:', error);
     }
+
+    // Save window position when it moves or resizes
+    let saveTimeout;
+    const window = getCurrentWindow();
+
+    // Listen for window move/resize events
+    await listen('tauri://move', () => {
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(saveWindowPosition, 500);
+    });
+
+    await listen('tauri://resize', () => {
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(saveWindowPosition, 500);
+    });
+
+    // Save position when window closes
+    await listen('tauri://close-requested', () => {
+        saveWindowPosition();
+    });
+
+    // Load and apply preferences
+    loadPreferences();
 
     try {
         const version = await invoke('get_app_version');
@@ -59,6 +130,16 @@ async function init() {
     browseOutputBtn.addEventListener('click', browseOutputDirectory);
     startButton.addEventListener('click', startStacking);
     openOutputButton.addEventListener('click', openOutputFolder);
+
+    // Recipe event listener (main form)
+    document.getElementById('recipe').addEventListener('change', loadMainFormRecipe);
+
+    // Preferences event listeners
+    document.getElementById('preferencesBtn').addEventListener('click', openPreferences);
+    document.getElementById('prefRecipe').addEventListener('change', loadRecipeTemplate);
+    document.getElementById('savePreferences').addEventListener('click', savePreferences);
+    document.getElementById('cancelPreferences').addEventListener('click', closePreferences);
+    document.getElementById('resetPreferences').addEventListener('click', resetPreferences);
 
     // Listen for frame selection changes
     document.getElementById('startFrame').addEventListener('input', updateFileSelection);
@@ -83,6 +164,210 @@ async function init() {
             openOutputButton.style.display = 'block';
         }
     });
+}
+
+// Preferences System
+const defaultPreferences = {
+    prefix: 'stacked-',
+    stacking: 'maximum',
+    quality: 100,
+    pngCompressLevel: 6,
+    tiffCompression: 'deflate',
+    theme: 'vibrant'
+};
+
+// Built-in recipe templates (full settings from recipe YAML files)
+const recipeTemplates = {
+    'stars': {
+        stacking: 'maximum',
+        trail_length: 30,
+        fade_out: true,
+        quality: 95,
+        frame_interval: 1
+    },
+    'murmurations': {
+        stacking: 'minimum',
+        trail_length: 15,
+        trail_gradient: true,
+        quality: 90,
+        frame_interval: 1
+    },
+    'traffic': {
+        stacking: 'maximum',
+        trail_length: 20,
+        fade_out: true,
+        quality: 92,
+        frame_interval: 1
+    },
+    'timelapse': {
+        stacking: 'mean',
+        trail_length: 5,
+        quality: 90,
+        frame_interval: 1
+    },
+    'fireworks': {
+        stacking: 'maximum',
+        trail_length: 10,
+        quality: 95,
+        frame_interval: 1
+    },
+    'noise-reduction': {
+        stacking: 'mean',
+        trail_length: 0,
+        fade_out: false,
+        quality: 95,
+        frame_interval: 1
+    }
+};
+
+function loadPreferences() {
+    try {
+        const saved = localStorage.getItem('userPreferences');
+        const prefs = saved ? JSON.parse(saved) : defaultPreferences;
+        applyPreferences(prefs);
+        return prefs;
+    } catch (error) {
+        console.error('Failed to load preferences:', error);
+        return defaultPreferences;
+    }
+}
+
+function applyPreferences(prefs) {
+    // Apply to main form fields
+    document.getElementById('prefix').value = prefs.prefix || defaultPreferences.prefix;
+    document.getElementById('stacking').value = prefs.stacking || defaultPreferences.stacking;
+    document.getElementById('quality').value = prefs.quality || defaultPreferences.quality;
+    document.getElementById('pngCompressLevel').value = prefs.pngCompressLevel || defaultPreferences.pngCompressLevel;
+    document.getElementById('tiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
+
+    // Apply theme
+    applyTheme(prefs.theme || defaultPreferences.theme);
+}
+
+function applyTheme(themeName) {
+    // Set data-theme attribute on body element
+    document.body.setAttribute('data-theme', themeName);
+
+    // Save to localStorage for persistence
+    try {
+        const prefs = JSON.parse(localStorage.getItem('userPreferences') || '{}');
+        prefs.theme = themeName;
+        localStorage.setItem('userPreferences', JSON.stringify(prefs));
+    } catch (error) {
+        console.error('Failed to save theme preference:', error);
+    }
+}
+
+function loadMainFormRecipe() {
+    const recipeSelect = document.getElementById('recipe');
+    const recipeId = recipeSelect.value;
+
+    if (!recipeId || !recipeTemplates[recipeId]) {
+        return;
+    }
+
+    const recipe = recipeTemplates[recipeId];
+
+    // Populate main form fields with recipe values
+    if (recipe.stacking) {
+        document.getElementById('stacking').value = recipe.stacking;
+    }
+    if (recipe.quality !== undefined) {
+        document.getElementById('quality').value = recipe.quality;
+    }
+    if (recipe.trail_length !== undefined) {
+        document.getElementById('trailLength').value = recipe.trail_length;
+    }
+    if (recipe.frame_interval !== undefined) {
+        document.getElementById('frameInterval').value = recipe.frame_interval;
+    }
+    if (recipe.fade_out !== undefined) {
+        document.getElementById('fadeOut').checked = recipe.fade_out;
+    }
+    if (recipe.trail_gradient !== undefined) {
+        document.getElementById('trailGradient').checked = recipe.trail_gradient;
+    }
+}
+
+function loadRecipeTemplate() {
+    const recipeSelect = document.getElementById('prefRecipe');
+    const recipeId = recipeSelect.value;
+
+    if (!recipeId || !recipeTemplates[recipeId]) {
+        return;
+    }
+
+    const recipe = recipeTemplates[recipeId];
+
+    // Populate preference fields with recipe values (only quality and stacking for prefs)
+    if (recipe.stacking) {
+        document.getElementById('prefStacking').value = recipe.stacking;
+    }
+    if (recipe.quality !== undefined) {
+        document.getElementById('prefQuality').value = recipe.quality;
+    }
+
+    // Reset recipe selector after loading
+    recipeSelect.value = '';
+}
+
+function openPreferences() {
+    const prefs = loadPreferences();
+
+    // Reset recipe selector
+    document.getElementById('prefRecipe').value = '';
+
+    // Populate preferences dialog with current values (with fallbacks to defaults)
+    document.getElementById('prefPrefix').value = prefs.prefix || defaultPreferences.prefix;
+    document.getElementById('prefStacking').value = prefs.stacking || defaultPreferences.stacking;
+    document.getElementById('prefQuality').value = prefs.quality || defaultPreferences.quality;
+    document.getElementById('prefPngCompress').value = prefs.pngCompressLevel || defaultPreferences.pngCompressLevel;
+    document.getElementById('prefTiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
+    document.getElementById('prefTheme').value = prefs.theme || defaultPreferences.theme;
+
+    // Show dialog
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('preferencesDialog').style.display = 'block';
+}
+
+function closePreferences() {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('preferencesDialog').style.display = 'none';
+}
+
+function savePreferences() {
+    const prefs = {
+        prefix: document.getElementById('prefPrefix').value,
+        stacking: document.getElementById('prefStacking').value,
+        quality: parseInt(document.getElementById('prefQuality').value),
+        pngCompressLevel: parseInt(document.getElementById('prefPngCompress').value),
+        tiffCompression: document.getElementById('prefTiffCompression').value,
+        theme: document.getElementById('prefTheme').value
+    };
+
+    try {
+        localStorage.setItem('userPreferences', JSON.stringify(prefs));
+        applyPreferences(prefs);
+        closePreferences();
+    } catch (error) {
+        console.error('Failed to save preferences:', error);
+        alert('Failed to save preferences: ' + error.message);
+    }
+}
+
+function resetPreferences() {
+    if (confirm('Reset all preferences to defaults?')) {
+        localStorage.removeItem('userPreferences');
+        applyPreferences(defaultPreferences);
+
+        // Update preferences dialog
+        document.getElementById('prefPrefix').value = defaultPreferences.prefix;
+        document.getElementById('prefStacking').value = defaultPreferences.stacking;
+        document.getElementById('prefQuality').value = defaultPreferences.quality;
+        document.getElementById('prefPngCompress').value = defaultPreferences.pngCompressLevel;
+        document.getElementById('prefTiffCompression').value = defaultPreferences.tiffCompression;
+        document.getElementById('prefTheme').value = defaultPreferences.theme;
+    }
 }
 
 async function browseInputDirectory() {

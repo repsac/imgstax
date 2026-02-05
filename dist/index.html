@@ -8,6 +8,7 @@
 </head>
 <body>
     <div class="header">
+        <button class="preferences-btn" id="preferencesBtn" title="Preferences">⚙️</button>
         <h1>imgstax</h1>
         <div class="subtitle">Sequential Image Stacking for Animations</div>
         <div class="status" id="status-bar">✓ Tauri loaded</div>
@@ -34,11 +35,22 @@
             </div>
 
             <div class="form-group">
+                <label for="recipe">Recipe (Optional)</label>
+                <select id="recipe">
+                    <option value="">Custom settings...</option>
+                    <option value="stars">Star Trails</option>
+                    <option value="murmurations">Bird Murmurations</option>
+                    <option value="traffic">Traffic Light Trails</option>
+                    <option value="timelapse">Time-Lapse</option>
+                    <option value="fireworks">Fireworks</option>
+                    <option value="noise-reduction">Noise Reduction</option>
+                </select>
+            </div>
+
+            <div class="form-group">
                 <label for="prefix">Output Prefix</label>
                 <input type="text" id="prefix" value="stacked-">
             </div>
-
-            <div class="section-title">Stacking & Format Options</div>
 
             <div class="form-group">
                 <label for="stacking">Stacking Method</label>
@@ -155,6 +167,7 @@
     </div>
 
     <div class="overlay" id="overlay"></div>
+
     <div id="progressDialog">
         <h2>Stacking Images</h2>
         <div class="progress-bar">
@@ -162,6 +175,98 @@
         </div>
         <div id="progressText">Initializing...</div>
         <button id="openOutputButton" style="display: none; width: 100%;">Open Output Folder</button>
+    </div>
+
+    <div id="preferencesDialog" style="display: none;">
+        <h2>Preferences</h2>
+
+        <div class="preferences-section">
+            <h3>Default Values</h3>
+
+            <div class="pref-group">
+                <label for="prefRecipe">Load from Recipe (Template)</label>
+                <select id="prefRecipe">
+                    <option value="">-- Select a recipe --</option>
+                    <option value="stars">Star Trails</option>
+                    <option value="murmurations">Bird Murmurations</option>
+                    <option value="traffic">Traffic Light Trails</option>
+                    <option value="timelapse">Time-Lapse</option>
+                    <option value="fireworks">Fireworks</option>
+                    <option value="noise-reduction">Noise Reduction</option>
+                </select>
+            </div>
+
+            <div class="pref-group">
+                <label for="prefPrefix">Output Prefix</label>
+                <input type="text" id="prefPrefix" value="stacked-">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefStacking">Stacking Method</label>
+                <select id="prefStacking">
+                    <option value="maximum">Maximum (brightest)</option>
+                    <option value="minimum">Minimum (darkest)</option>
+                    <option value="mean">Mean (average)</option>
+                    <option value="median">Median</option>
+                </select>
+            </div>
+
+            <div class="pref-group">
+                <label for="prefQuality">JPEG Quality</label>
+                <input type="number" id="prefQuality" value="100" min="1" max="100">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefPngCompress">PNG Compression Level</label>
+                <input type="number" id="prefPngCompress" value="6" min="0" max="9">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefTiffCompression">TIFF Compression</label>
+                <select id="prefTiffCompression">
+                    <option value="none">None</option>
+                    <option value="lzw">LZW</option>
+                    <option value="deflate" selected>Deflate (default)</option>
+                    <option value="jpeg">JPEG</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="preferences-section">
+            <h3>Appearance</h3>
+
+            <div class="pref-group">
+                <label for="prefTheme">Theme</label>
+                <select id="prefTheme">
+                    <optgroup label="Basic Themes">
+                        <option value="vibrant">Vibrant (default)</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </optgroup>
+                    <optgroup label="Low Contrast">
+                        <option value="low-contrast-light">Low Contrast Light</option>
+                        <option value="low-contrast-dark">Low Contrast Dark</option>
+                    </optgroup>
+                    <optgroup label="Nature Themes">
+                        <option value="desert">Desert</option>
+                        <option value="forest">Forest</option>
+                        <option value="beach">Beach</option>
+                        <option value="winter">Winter</option>
+                    </optgroup>
+                    <optgroup label="Location Themes">
+                        <option value="urban">Urban</option>
+                        <option value="utah">Utah</option>
+                        <option value="yosemite">Yosemite</option>
+                    </optgroup>
+                </select>
+            </div>
+        </div>
+
+        <div class="preferences-actions">
+            <button id="savePreferences" class="primary">Save</button>
+            <button id="cancelPreferences" class="secondary">Cancel</button>
+            <button id="resetPreferences" class="secondary">Reset to Defaults</button>
+        </div>
     </div>
 
     <script src="main.js"></script>
