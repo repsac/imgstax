@@ -102,8 +102,10 @@ settings:
   step: 1            # Process every nth frame
 
   # Output quality
-  quality: 95        # JPEG quality (1-100)
-  prefix: "custom-"  # Output filename prefix
+  quality: 95              # JPEG quality (1-100)
+  png_compress_level: 6    # PNG compression (0-9)
+  tiff_compression: deflate # TIFF compression (none/lzw/deflate/jpeg)
+  prefix: "custom-"        # Output filename prefix
 
   # Other options
   dryrun: false      # Test run without creating files
