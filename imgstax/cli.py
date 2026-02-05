@@ -90,6 +90,11 @@ def main() -> None:
                         action=argparse.BooleanOptionalAction,
                         help="Store all log output to file")
 
+    parser.add_argument('--log-level',
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        default='INFO',
+                        help="Set logging verbosity level (default: INFO)")
+
     parser.add_argument('--start',
                         type=int,
                         help="In (start) frame to begin the stack with")
@@ -131,6 +136,10 @@ def main() -> None:
                         help="JPEG output quality (1-100, default: 95)")
 
     args = parser.parse_args()
+
+    # Configure logging level
+    log_level = getattr(logging, args.log_level)
+    logging.getLogger('imgstax').setLevel(log_level)
 
     # Handle --list-recipes
     if args.list_recipes:
