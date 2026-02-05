@@ -40,14 +40,25 @@ def _time_it(func):
     return wrapper
 
 
-def _progress(progress: int, total_images: int) -> None:
-    """Log progress percentage.
+def _progress(progress: int, total_images: int, current_file: str = None, json_mode: bool = False) -> None:
+    """Log progress percentage or emit JSON progress.
 
     Args:
         progress: Current progress count
         total_images: Total number of images
+        current_file: Name of current file being processed
+        json_mode: If True, emit JSON; otherwise log normally
     """
-    logger.info("Stacking progress: %.1f%%", ((progress / total_images) * 100))
+    if json_mode:
+        import json
+        print(json.dumps({
+            "type": "progress",
+            "current": progress,
+            "total": total_images,
+            "file": current_file or ""
+        }), flush=True)
+    else:
+        logger.info("Stacking progress: %.1f%%", ((progress / total_images) * 100))
 
 
 @_time_it
@@ -105,7 +116,7 @@ def stack(config: StackConfig) -> None:
 
     for index, image in iterator:
         if not HAS_TQDM:
-            _progress(index, total_images)
+            _progress(index, total_images, image.name if config.progress_json else None, config.progress_json)
 
         stacked_images.append(get_output_filepath(config.output_path, config.prefix, index, ext))
 
@@ -139,3 +150,8 @@ def stack(config: StackConfig) -> None:
             subset_images = (stacked_images[-2], image)
 
         stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
+
+    # Emit completion message for JSON mode
+    if config.progress_json:
+        import json
+        print(json.dumps({"type": "complete"}), flush=True)

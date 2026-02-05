@@ -23,6 +23,7 @@ class StackConfig:
     dryrun: bool = False
     quality: int = 95
     logfile: bool = False
+    progress_json: bool = False
 
     def validate(self) -> None:
         """Validate configuration parameters.

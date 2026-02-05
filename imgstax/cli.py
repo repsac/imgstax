@@ -95,6 +95,10 @@ def main() -> None:
                         default='INFO',
                         help="Set logging verbosity level (default: INFO)")
 
+    parser.add_argument('--progress-json',
+                        action='store_true',
+                        help="Output progress as JSON lines (for GUI integration)")
+
     parser.add_argument('--start',
                         type=int,
                         help="In (start) frame to begin the stack with")
@@ -219,7 +223,8 @@ def main() -> None:
         gradient_plateau=get_setting(args.gradient_plateau if args.gradient_plateau != 0 else None, 'gradient_plateau', 0),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
         quality=get_setting(args.quality if args.quality != 95 else None, 'quality', 95),
-        logfile=get_setting(args.logfile, 'logfile', False)
+        logfile=get_setting(args.logfile, 'logfile', False),
+        progress_json=args.progress_json
     )
 
     # Set up output directory and logging
