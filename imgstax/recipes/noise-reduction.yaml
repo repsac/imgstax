@@ -1,0 +1,31 @@
+# Noise Reduction Recipe
+# Optimized for reducing noise by averaging multiple exposures
+
+name: "Noise Reduction"
+description: "Mean stacking to reduce noise through averaging"
+
+settings:
+  # Mean averaging reduces random noise
+  stacking: mean
+
+  # No trail - pure averaging
+  trail_length: 0
+
+  # No fade out needed
+  fade_out: false
+
+  # High quality for clean output
+  quality: 95
+
+  # Process all frames for best noise reduction
+  step: 1
+
+# Tips:
+#   - Best with static scenes
+#   - More frames = better noise reduction
+#   - Use tripod for alignment
+#   - Consider median stacking to remove transient objects
+
+# Usage examples:
+#   python -m imgstax noisy_images/ --recipe noise-reduction
+#   python -m imgstax noisy_images/ --recipe noise-reduction -s median  # Remove people

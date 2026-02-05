@@ -1,0 +1,26 @@
+# Star Trail Photography Recipe
+# Optimized for astrophotography and star trail effects
+
+name: "Star Trails"
+description: "Maximum stacking for capturing star movement across the night sky"
+
+settings:
+  # Use maximum stacking to capture all light from stars
+  stacking: maximum
+
+  # Longer trail for smooth, continuous star trails
+  trail_length: 30
+
+  # Fade out trails at the end for smooth conclusion
+  fade_out: true
+
+  # High quality output for detailed star field
+  quality: 95
+
+  # Process all frames by default (no step)
+  step: 1
+
+# Usage examples:
+#   python -m imgstax images/ --recipe stars
+#   python -m imgstax images/ --recipe stars -t 50  # Override trail length
+#   python -m imgstax images/ --recipe stars -o star_trails_output

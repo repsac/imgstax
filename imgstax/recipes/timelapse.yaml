@@ -1,0 +1,26 @@
+# Time-lapse Recipe
+# Optimized for smooth time-lapse effects
+
+name: "Time-lapse"
+description: "Short trails for subtle motion blur in time-lapses"
+
+settings:
+  # Mean stacking for smooth, averaged appearance
+  stacking: mean
+
+  # Short trail for subtle motion blur
+  trail_length: 5
+
+  # No fade out - keep consistent throughout
+  fade_out: false
+
+  # Medium quality for reasonable file sizes
+  quality: 85
+
+  # Process every 2nd frame for speed
+  step: 2
+
+# Usage examples:
+#   python -m imgstax timelapse_images/ --recipe timelapse
+#   python -m imgstax timelapse_images/ --recipe timelapse -t 10  # More blur
+#   python -m imgstax timelapse_images/ --recipe timelapse --step 1  # All frames
