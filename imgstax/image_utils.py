@@ -56,7 +56,8 @@ def validate_image_dimensions(images: List[Path]) -> Tuple[int, int]:
 def apply_gradient_weights(images_arrays: list,
                           gradient: bool = False,
                           decay_factor: float = 0.85,
-                          plateau: int = 0) -> numpy.ndarray:
+                          plateau: int = 0,
+                          stack_func: Callable = numpy.amax) -> numpy.ndarray:
     """Apply gradient weights to image arrays for comet tail effect.
 
     Args:
@@ -64,19 +65,24 @@ def apply_gradient_weights(images_arrays: list,
         gradient: If True, apply progressive weighting
         decay_factor: Exponential decay rate (0.0-1.0, default 0.85)
         plateau: Number of newest frames at full intensity before decay (default 0)
+        stack_func: Stacking function (numpy.amax or numpy.amin) to determine fade direction
 
     Returns:
         Weighted composite image as numpy array
     """
     if not gradient or len(images_arrays) == 1:
-        # No gradient, use maximum (most common case)
-        return numpy.amax(images_arrays, axis=0)
+        # No gradient, use the stacking function
+        return numpy.uint8(stack_func(images_arrays, axis=0))
 
     num_images = len(images_arrays)
 
-    # Convert to float for weighted operations
-    weighted_sum = numpy.zeros_like(images_arrays[0], dtype=numpy.float64)
-    total_weight = 0.0
+    # Determine fade direction based on stacking function
+    # For minimum: fade toward white (255) - makes dark objects lighter
+    # For maximum: fade toward black (0) - makes bright objects darker
+    is_minimum = stack_func == numpy.amin
+    fade_target = 255.0 if is_minimum else 0.0
+
+    weighted_images = []
 
     for i, img_array in enumerate(images_arrays):
         # Calculate position from newest (0 = newest, num_images-1 = oldest)
@@ -90,11 +96,14 @@ def apply_gradient_weights(images_arrays: list,
             decay_steps = position_from_newest - plateau
             weight = decay_factor ** decay_steps
 
-        weighted_sum += img_array.astype(numpy.float64) * weight
-        total_weight += weight
+        img_float = img_array.astype(numpy.float64)
 
-    # Normalize and convert back to uint8
-    result = weighted_sum / total_weight
+        # Apply weighting: blend between original and fade target
+        weighted_img = img_float * weight + fade_target * (1.0 - weight)
+        weighted_images.append(weighted_img)
+
+    # Apply stacking function (min or max) to weighted images
+    result = stack_func(weighted_images, axis=0)
     return numpy.uint8(numpy.clip(result, 0, 255))
 
 
@@ -144,7 +153,8 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         if gradient:
             stacked = apply_gradient_weights(images_arrays, gradient=True,
                                             decay_factor=gradient_decay,
-                                            plateau=gradient_plateau)
+                                            plateau=gradient_plateau,
+                                            stack_func=stack_func)
         else:
             stacked = numpy.uint8(stack_func(images_arrays, axis=0))
 
