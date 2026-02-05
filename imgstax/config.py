@@ -22,6 +22,8 @@ class StackConfig:
     gradient_plateau: int = 0
     dryrun: bool = False
     quality: int = 100
+    png_compress_level: int = 6
+    tiff_compression: str = 'deflate'
     logfile: bool = False
     progress_json: bool = False
 
@@ -42,6 +44,15 @@ class StackConfig:
 
         if not 1 <= self.quality <= 100:
             raise ValueError(f"Quality must be between 1 and 100, got: {self.quality}")
+
+        if not 0 <= self.png_compress_level <= 9:
+            raise ValueError(f"PNG compress level must be between 0 and 9, got: {self.png_compress_level}")
+
+        valid_tiff_compressions = ['none', 'lzw', 'deflate', 'jpeg']
+        if self.tiff_compression not in valid_tiff_compressions:
+            raise ValueError(
+                f"TIFF compression must be one of {valid_tiff_compressions}, got: '{self.tiff_compression}'"
+            )
 
         if self.start_frame is not None and self.start_frame < 0:
             raise ValueError(f"Start frame must be non-negative, got: {self.start_frame}")

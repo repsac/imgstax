@@ -38,20 +38,41 @@
                 <input type="text" id="prefix" value="stacked-">
             </div>
 
-            <div class="grid">
-                <div class="form-group">
-                    <label for="stacking">Stacking Method</label>
-                    <select id="stacking">
-                        <option value="maximum">Maximum (brightest)</option>
-                        <option value="minimum">Minimum (darkest)</option>
-                        <option value="mean">Mean (average)</option>
-                        <option value="median">Median</option>
-                    </select>
-                </div>
+            <div class="section-title">Stacking & Format Options</div>
 
-                <div class="form-group">
-                    <label for="quality">JPEG Quality (1-100)</label>
-                    <input type="number" id="quality" value="100" min="1" max="100">
+            <div class="form-group">
+                <label for="stacking">Stacking Method</label>
+                <select id="stacking">
+                    <option value="maximum">Maximum (brightest)</option>
+                    <option value="minimum">Minimum (darkest)</option>
+                    <option value="mean">Mean (average)</option>
+                    <option value="median">Median</option>
+                </select>
+            </div>
+
+            <div id="formatOptionsSection" style="display: none;">
+                <div class="subsection-title">Image Format Settings</div>
+
+                <div class="grid">
+                    <div class="form-group" style="display: none;">
+                        <label for="quality">JPEG Quality (1-100)</label>
+                        <input type="number" id="quality" value="100" min="1" max="100">
+                    </div>
+
+                    <div class="form-group" style="display: none;">
+                        <label for="pngCompressLevel">PNG Compression (0-9)</label>
+                        <input type="number" id="pngCompressLevel" value="6" min="0" max="9">
+                    </div>
+
+                    <div class="form-group" style="display: none;">
+                        <label for="tiffCompression">TIFF Compression</label>
+                        <select id="tiffCompression">
+                            <option value="none">None</option>
+                            <option value="lzw">LZW</option>
+                            <option value="deflate" selected>Deflate (default)</option>
+                            <option value="jpeg">JPEG</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 

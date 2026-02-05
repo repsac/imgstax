@@ -139,6 +139,16 @@ def main() -> None:
                         default=100,
                         help="JPEG output quality (1-100, default: 100)")
 
+    parser.add_argument('--png-compress-level',
+                        type=int,
+                        default=6,
+                        help="PNG compression level (0-9, default: 6). 0=no compression, 9=maximum compression")
+
+    parser.add_argument('--tiff-compression',
+                        choices=['none', 'lzw', 'deflate', 'jpeg'],
+                        default='deflate',
+                        help="TIFF compression method (default: deflate)")
+
     args = parser.parse_args()
 
     # Configure logging level
@@ -223,6 +233,8 @@ def main() -> None:
         gradient_plateau=get_setting(args.gradient_plateau if args.gradient_plateau != 0 else None, 'gradient_plateau', 0),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
         quality=get_setting(args.quality if args.quality != 100 else None, 'quality', 100),
+        png_compress_level=get_setting(args.png_compress_level if args.png_compress_level != 6 else None, 'png_compress_level', 6),
+        tiff_compression=get_setting(args.tiff_compression if args.tiff_compression != 'deflate' else None, 'tiff_compression', 'deflate'),
         logfile=get_setting(args.logfile, 'logfile', False),
         progress_json=args.progress_json
     )

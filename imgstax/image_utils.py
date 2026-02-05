@@ -112,6 +112,8 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
                  stack_func: Callable,
                  dryrun: bool,
                  quality: int = 95,
+                 png_compress_level: int = 6,
+                 tiff_compression: str = 'deflate',
                  gradient: bool = False,
                  gradient_decay: float = 0.85,
                  gradient_plateau: int = 0) -> None:
@@ -123,6 +125,8 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         stack_func: NumPy function to use for stacking (e.g., numpy.amax)
         dryrun: If True, skip actual image processing
         quality: JPEG quality (1-100)
+        png_compress_level: PNG compression level (0-9, default: 6)
+        tiff_compression: TIFF compression method ('none', 'lzw', 'deflate', 'jpeg')
         gradient: If True, apply gradient weighting (comet tail effect)
         gradient_decay: Exponential decay rate for gradient (0.0-1.0, default 0.85)
         gradient_plateau: Number of newest frames at full intensity (default 0)
@@ -162,11 +166,28 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
 
         # Save with appropriate options based on format
         save_kwargs = {'format': img_format}
+
+        # Create TIFF compression mapping (CLI names to PIL names)
+        tiff_compression_map = {
+            'none': None,
+            'lzw': 'tiff_lzw',
+            'deflate': 'tiff_deflate',
+            'jpeg': 'tiff_jpeg'
+        }
+
         if img_format == 'JPEG':
             save_kwargs['quality'] = quality
             save_kwargs['optimize'] = True
         elif img_format == 'PNG':
             save_kwargs['optimize'] = True
+            save_kwargs['compress_level'] = png_compress_level
+        elif img_format == 'TIFF':
+            pil_compression = tiff_compression_map.get(tiff_compression)
+            if pil_compression is not None:
+                save_kwargs['compression'] = pil_compression
+            # If tiff_compression is 'jpeg', also pass quality
+            if tiff_compression == 'jpeg':
+                save_kwargs['quality'] = quality
 
         newimg.save(output, **save_kwargs)
 
