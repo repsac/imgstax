@@ -11,14 +11,19 @@
     "windows": [
       {
         "title": "imgstax - Image Stacking Tool",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 850,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "devtools": true
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: https://tauri.localhost; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self' ipc: https://tauri.localhost https://asset.localhost; img-src 'self' https://asset.localhost asset: data:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {
