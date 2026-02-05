@@ -1,6 +1,8 @@
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
+const { getCurrentWindow } = window.__TAURI__.window;
+const { currentMonitor } = window.__TAURI__.window;
 
 let inputDirPath = '';
 let outputDirPath = '';
@@ -27,6 +29,24 @@ const previewContentEl = document.getElementById('previewContent');
 
 // Initialize
 async function init() {
+    // Dynamically size window to 80% of screen height
+    try {
+        const monitor = await currentMonitor();
+        if (monitor && monitor.size) {
+            const screenHeight = monitor.size.height;
+            const targetHeight = Math.floor(screenHeight * 0.8);
+
+            // Maintain 1.5 aspect ratio (width:height = 3:2)
+            const targetWidth = Math.floor(targetHeight * 1.5);
+
+            const window = getCurrentWindow();
+            await window.setSize({ width: targetWidth, height: targetHeight });
+            await window.center();
+        }
+    } catch (error) {
+        console.error('Failed to resize window:', error);
+    }
+
     try {
         const version = await invoke('get_app_version');
         statusEl.textContent = `imgstax v${version}`;
