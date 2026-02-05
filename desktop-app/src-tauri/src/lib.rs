@@ -1,8 +1,44 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
+
+/// Get the Python interpreter path.
+/// In development, uses the system Python.
+/// In production, this won't be used as we'll have the bundled binary.
+fn get_python_path() -> String {
+    "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
+}
+
+/// Get the path to the imgstax executable.
+/// In development, uses the system Python with -m imgstax.
+/// In production, uses the bundled imgstax binary.
+fn get_imgstax_command() -> (String, Vec<String>) {
+    // Check if we have a bundled binary
+    let resource_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|p| p.to_path_buf()));
+
+    if let Some(dir) = resource_dir {
+        // Look for bundled binary in same directory as executable
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
+        } else {
+            "imgstax"
+        };
+
+        let bundled_path = dir.join(binary_name);
+        if bundled_path.exists() {
+            // Production: use bundled binary
+            return (bundled_path.to_string_lossy().to_string(), vec![]);
+        }
+    }
+
+    // Development: use Python with -m imgstax
+    // This allows for rapid iteration without rebuilding the binary
+    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Recipe {
@@ -78,7 +114,7 @@ fn open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 fn get_recipes() -> Result<Vec<Recipe>, String> {
     // Call Python to get recipe list
-    let output = Command::new("/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3")
+    let output = Command::new(get_python_path())
         .arg("-c")
         .arg(r#"
 import sys
@@ -127,7 +163,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
     // Escape the path properly for Python
     let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
 
-    let output = Command::new("/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3")
+    let output = Command::new(get_python_path())
         .arg("-c")
         .arg(format!(r#"
 import sys
@@ -183,10 +219,11 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
             .unwrap_or_else(|_| config.output_path.clone())
     };
 
-    // Build Python command to run stacking
-    let mut args = vec![
-        "-m".to_string(),
-        "imgstax".to_string(),
+    // Get imgstax command (bundled binary or Python in dev)
+    let (imgstax_cmd, mut base_args) = get_imgstax_command();
+
+    // Build command arguments
+    base_args.extend(vec![
         config.input_path.clone(),
         "-o".to_string(),
         config.output_path.clone(),
@@ -199,43 +236,43 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     ];
 
     if let Some(start_frame) = config.start_frame {
-        args.push("--start-frame".to_string());
-        args.push(start_frame.to_string());
+        base_args.push("--start-frame".to_string());
+        base_args.push(start_frame.to_string());
     }
 
     if let Some(end_frame) = config.end_frame {
-        args.push("--end-frame".to_string());
-        args.push(end_frame.to_string());
+        base_args.push("--end-frame".to_string());
+        base_args.push(end_frame.to_string());
     }
 
     if config.frame_interval > 1 {
-        args.push("--frame-interval".to_string());
-        args.push(config.frame_interval.to_string());
+        base_args.push("--frame-interval".to_string());
+        base_args.push(config.frame_interval.to_string());
     }
 
     if config.trail_length > 0 {
-        args.push("-t".to_string());
-        args.push(config.trail_length.to_string());
+        base_args.push("-t".to_string());
+        base_args.push(config.trail_length.to_string());
     }
 
     if config.trail_gradient {
-        args.push("-g".to_string());
-        args.push("--gradient-decay".to_string());
-        args.push(config.gradient_decay.to_string());
-        args.push("--gradient-plateau".to_string());
-        args.push(config.gradient_plateau.to_string());
+        base_args.push("-g".to_string());
+        base_args.push("--gradient-decay".to_string());
+        base_args.push(config.gradient_decay.to_string());
+        base_args.push("--gradient-plateau".to_string());
+        base_args.push(config.gradient_plateau.to_string());
     }
 
     if config.fade_out {
-        args.push("-f".to_string());
+        base_args.push("-f".to_string());
     }
 
     // Add progress JSON flag for GUI
-    args.push("--progress-json".to_string());
+    base_args.push("--progress-json".to_string());
 
     // Execute stacking with streaming output
-    let mut child = Command::new("/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3")
-        .args(&args)
+    let mut child = Command::new(&imgstax_cmd)
+        .args(&base_args)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
