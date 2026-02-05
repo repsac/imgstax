@@ -382,3 +382,22 @@ button.secondary:hover {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.4);
 }
+
+/* Section titles */
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #333;
+    margin: 24px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.subsection-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #555;
+    margin: 16px 0 12px;
+    padding-left: 8px;
+    border-left: 3px solid #667eea;
+}

@@ -84,9 +84,15 @@ async function browseInputDirectory() {
             const result = await invoke('validate_directory', { path: selected });
 
             if (result.valid) {
-                inputValidationEl.textContent = `✓ Found ${result.image_count} images`;
+                const formatText = result.detected_formats && result.detected_formats.length > 0
+                    ? ` (${result.detected_formats.map(f => f.toUpperCase()).join(', ')})`
+                    : '';
+                inputValidationEl.textContent = `✓ Found ${result.image_count} images${formatText}`;
                 inputValidationEl.className = 'validation-message success';
                 updateStartButtonState();
+
+                // Show/hide format-specific controls based on detected formats
+                updateFormatControls(result.detected_formats || []);
 
                 // Load file list
                 await loadFileList(selected);
@@ -94,6 +100,8 @@ async function browseInputDirectory() {
                 inputValidationEl.textContent = `✗ ${result.error}`;
                 inputValidationEl.className = 'validation-message error';
                 startButton.disabled = true;
+                // Hide all format controls when validation fails
+                updateFormatControls([]);
             }
         }
     } catch (error) {
@@ -114,6 +122,32 @@ async function loadFileList(dirPath) {
         fileListTitleEl.textContent = 'Error loading files';
         fileListEl.innerHTML = `<div class="file-list-empty">Error: ${error}</div>`;
     }
+}
+
+function updateFormatControls(detectedFormats) {
+    // Get all format control groups
+    const formatSection = document.getElementById('formatOptionsSection');
+    const jpegControl = document.getElementById('quality').closest('.form-group');
+    const pngControl = document.getElementById('pngCompressLevel').closest('.form-group');
+    const tiffControl = document.getElementById('tiffCompression').closest('.form-group');
+
+    // If no formats detected, hide entire section
+    if (!detectedFormats || detectedFormats.length === 0) {
+        if (formatSection) formatSection.style.display = 'none';
+        return;
+    }
+
+    // Show the format options section
+    if (formatSection) formatSection.style.display = 'block';
+
+    // Show controls based on detected formats
+    const hasJpeg = detectedFormats.includes('jpeg');
+    const hasPng = detectedFormats.includes('png');
+    const hasTiff = detectedFormats.includes('tiff');
+
+    if (jpegControl) jpegControl.style.display = hasJpeg ? 'block' : 'none';
+    if (pngControl) pngControl.style.display = hasPng ? 'block' : 'none';
+    if (tiffControl) tiffControl.style.display = hasTiff ? 'block' : 'none';
 }
 
 function calculateSelectedIndices() {
@@ -217,7 +251,9 @@ async function startStacking() {
         gradient_decay: parseFloat(document.getElementById('gradientDecay').value),
         gradient_plateau: parseInt(document.getElementById('gradientPlateau').value),
         fade_out: document.getElementById('fadeOut').checked,
-        quality: parseInt(document.getElementById('quality').value)
+        quality: parseInt(document.getElementById('quality').value),
+        png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
+        tiff_compression: document.getElementById('tiffCompression').value
     };
 
     // Show progress dialog

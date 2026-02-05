@@ -51,6 +51,7 @@ struct ValidationResult {
     valid: bool,
     image_count: usize,
     error: Option<String>,
+    detected_formats: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,6 +69,8 @@ struct StackConfig {
     gradient_plateau: u32,
     fade_out: bool,
     quality: u32,
+    png_compress_level: u32,
+    tiff_compression: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,6 +151,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
             valid: false,
             image_count: 0,
             error: Some("Directory does not exist".to_string()),
+            detected_formats: vec![],
         });
     }
 
@@ -156,6 +160,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
             valid: false,
             image_count: 0,
             error: Some("Path is not a directory".to_string()),
+            detected_formats: vec![],
         });
     }
 
@@ -169,6 +174,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
 import sys
 import os
 import io
+import json
 from pathlib import Path
 # Redirect stdout to capture log messages
 real_stdout = sys.stdout
@@ -177,9 +183,20 @@ sys.stdout = io.StringIO()
 sys.path.insert(0, os.getcwd())
 from imgstax.file_utils import find_input_images
 images = find_input_images(Path(r'{}'))
-# Restore stdout and print only the count
+# Detect unique file formats
+formats = set()
+for img in images:
+    ext = img.suffix.lower()
+    if ext in ['.jpg', '.jpeg']:
+        formats.add('jpeg')
+    elif ext == '.png':
+        formats.add('png')
+    elif ext in ['.tif', '.tiff']:
+        formats.add('tiff')
+# Restore stdout and print JSON result
 sys.stdout = real_stdout
-print(len(images))
+result = {{'count': len(images), 'formats': sorted(list(formats))}}
+print(json.dumps(result))
 "#, escaped_path))
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .output()
@@ -192,17 +209,37 @@ print(len(images))
             valid: false,
             image_count: 0,
             error: Some(format!("Python error:\nstderr: {}\nstdout: {}", stderr, stdout)),
+            detected_formats: vec![],
         });
     }
 
-    let count_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let count: usize = count_str.parse().unwrap_or(0);
+    let result_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    Ok(ValidationResult {
-        valid: true,
-        image_count: count,
-        error: None,
-    })
+    // Parse JSON result
+    #[derive(Deserialize)]
+    struct PythonResult {
+        count: usize,
+        formats: Vec<String>,
+    }
+
+    match serde_json::from_str::<PythonResult>(&result_str) {
+        Ok(result) => Ok(ValidationResult {
+            valid: true,
+            image_count: result.count,
+            error: None,
+            detected_formats: result.formats,
+        }),
+        Err(_) => {
+            // Fallback to old behavior if JSON parsing fails
+            let count: usize = result_str.parse().unwrap_or(0);
+            Ok(ValidationResult {
+                valid: true,
+                image_count: count,
+                error: None,
+                detected_formats: vec![],
+            })
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -283,6 +320,10 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         config.stacking.clone(),
         "-q".to_string(),
         config.quality.to_string(),
+        "--png-compress-level".to_string(),
+        config.png_compress_level.to_string(),
+        "--tiff-compression".to_string(),
+        config.tiff_compression.clone(),
     ]);
 
     if let Some(start_frame) = config.start_frame {
