@@ -101,6 +101,450 @@ async function loadUserRecipeYaml(recipeId) {
     }
 }
 
+// ==================== Queue Management System ====================
+
+// Queue state
+let stackingQueue = [];
+let isBatchProcessing = false;
+let currentBatchIndex = -1;
+
+// Load queue from localStorage
+function loadQueue() {
+    try {
+        const stored = localStorage.getItem('stackingQueue');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+
+            // Validate queue data integrity
+            if (!Array.isArray(parsed)) {
+                console.warn('Queue data is not an array, resetting');
+                stackingQueue = [];
+            } else {
+                // Validate each item has required fields
+                stackingQueue = parsed.filter(item => {
+                    return item &&
+                           typeof item.id === 'string' &&
+                           typeof item.timestamp === 'number' &&
+                           typeof item.status === 'string' &&
+                           item.config &&
+                           typeof item.config === 'object';
+                });
+
+                // Clear old completed/failed jobs (>24 hours)
+                const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+                stackingQueue = stackingQueue.filter(item => {
+                    return item.status === 'pending' || item.timestamp > cutoff;
+                });
+
+                saveQueue();
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load queue:', error);
+        stackingQueue = [];
+    }
+    updateQueueBadge();
+}
+
+// Save queue to localStorage
+function saveQueue() {
+    try {
+        localStorage.setItem('stackingQueue', JSON.stringify(stackingQueue));
+        updateQueueBadge();
+    } catch (error) {
+        console.error('Failed to save queue:', error);
+    }
+}
+
+// Update queue badge count
+function updateQueueBadge() {
+    const badge = document.getElementById('queueBadge');
+    if (!badge) return; // Element might not exist yet
+
+    const pendingCount = stackingQueue.filter(item => item.status === 'pending').length;
+    if (pendingCount > 0) {
+        badge.textContent = pendingCount;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+}
+
+// Generate UUID for queue items
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// Helper to collect form configuration
+function collectFormConfig() {
+    return {
+        inputDir: document.getElementById('inputDirectory').value.trim(),
+        outputDir: document.getElementById('outputDirectory').value.trim(),
+        recipe: document.getElementById('recipeSelect').value,
+        quality: parseInt(document.getElementById('quality').value),
+        pngCompressLevel: parseInt(document.getElementById('pngCompressLevel').value),
+        tiffCompression: document.getElementById('tiffCompression').value,
+        stackingMode: document.getElementById('stackingMode').value,
+        dryRun: document.getElementById('dryRun').checked,
+        startFrame: parseInt(document.getElementById('startFrame').value) || null,
+        endFrame: parseInt(document.getElementById('endFrame').value) || null,
+        trailLength: parseInt(document.getElementById('trailLength').value),
+        frameInterval: parseInt(document.getElementById('frameInterval').value),
+        trailGradient: document.getElementById('trailGradient').checked,
+        gradientDecay: parseFloat(document.getElementById('gradientDecay').value),
+        gradientPlateau: parseInt(document.getElementById('gradientPlateau').value)
+    };
+}
+
+// Add job to queue
+async function addToQueue() {
+    // Validate input directory first
+    const inputDir = document.getElementById('inputDirectory').value.trim();
+    if (!inputDir) {
+        alert('Please select an input directory');
+        return;
+    }
+
+    // Collect current form configuration
+    const config = collectFormConfig();
+
+    // Validate output directory is not empty
+    if (!config.outputDir) {
+        alert('Please select an output directory');
+        return;
+    }
+
+    // Check queue size limit
+    const pendingCount = stackingQueue.filter(i => i.status === 'pending').length;
+    if (pendingCount >= 50) {
+        if (!confirm('You have 50 or more jobs in the queue. Adding more jobs may impact performance. Continue?')) {
+            return;
+        }
+    }
+
+    // Validate unique output directory
+    const duplicate = stackingQueue.find(item =>
+        item.status === 'pending' && item.config.outputDir === config.outputDir
+    );
+
+    if (duplicate) {
+        alert('This output directory is already in the queue. Please choose a different output directory.');
+        return;
+    }
+
+    // Create queue item
+    const queueItem = {
+        id: generateUUID(),
+        timestamp: Date.now(),
+        status: 'pending',
+        config: config,
+        error: null
+    };
+
+    // Add to queue
+    stackingQueue.push(queueItem);
+    saveQueue();
+
+    // Clear only output directory field
+    document.getElementById('outputDirectory').value = '';
+
+    // Show confirmation
+    alert(`Added to queue! ${stackingQueue.filter(i => i.status === 'pending').length} job(s) pending.`);
+}
+
+// Remove job from queue
+function removeQueueItem(id) {
+    const item = stackingQueue.find(i => i.id === id);
+    if (!item) return;
+
+    if (item.status === 'processing') {
+        alert('Cannot remove a job that is currently processing');
+        return;
+    }
+
+    if (confirm('Remove this job from the queue?')) {
+        stackingQueue = stackingQueue.filter(i => i.id !== id);
+        saveQueue();
+        renderQueueList();
+    }
+}
+
+// Move queue item up
+function moveQueueItemUp(id) {
+    const index = stackingQueue.findIndex(i => i.id === id);
+    if (index > 0) {
+        [stackingQueue[index - 1], stackingQueue[index]] =
+        [stackingQueue[index], stackingQueue[index - 1]];
+        saveQueue();
+        renderQueueList();
+    }
+}
+
+// Move queue item down
+function moveQueueItemDown(id) {
+    const index = stackingQueue.findIndex(i => i.id === id);
+    if (index < stackingQueue.length - 1 && index >= 0) {
+        [stackingQueue[index], stackingQueue[index + 1]] =
+        [stackingQueue[index + 1], stackingQueue[index]];
+        saveQueue();
+        renderQueueList();
+    }
+}
+
+// Clear completed jobs
+function clearCompleted() {
+    const completedCount = stackingQueue.filter(i =>
+        i.status === 'completed' || i.status === 'failed' || i.status === 'cancelled'
+    ).length;
+
+    if (completedCount === 0) {
+        alert('No completed jobs to clear');
+        return;
+    }
+
+    if (confirm(`Clear ${completedCount} completed job(s)?`)) {
+        stackingQueue = stackingQueue.filter(i => i.status === 'pending' || i.status === 'processing');
+        saveQueue();
+        renderQueueList();
+    }
+}
+
+// Open queue dialog
+function openQueueDialog() {
+    document.getElementById('queueDialog').classList.remove('hidden');
+    renderQueueList();
+}
+
+// Close queue dialog
+function closeQueueDialog() {
+    document.getElementById('queueDialog').classList.add('hidden');
+}
+
+// Render queue list
+function renderQueueList() {
+    const queueList = document.getElementById('queueList');
+    const emptyMessage = document.getElementById('emptyQueueMessage');
+    const startBatchBtn = document.getElementById('startBatchBtn');
+    const clearCompletedBtn = document.getElementById('clearCompletedBtn');
+
+    if (stackingQueue.length === 0) {
+        emptyMessage.style.display = 'block';
+        queueList.innerHTML = '';
+        startBatchBtn.disabled = true;
+        clearCompletedBtn.disabled = true;
+        return;
+    }
+
+    emptyMessage.style.display = 'none';
+
+    queueList.innerHTML = stackingQueue.map((item, index) => {
+        const inputDirName = item.config.inputDir.split(/[\\/]/).pop() || item.config.inputDir;
+        const outputDirName = item.config.outputDir.split(/[\\/]/).pop() || item.config.outputDir;
+
+        return `
+            <div class="queue-item" data-id="${item.id}">
+                <div class="queue-item-status status-${item.status}">
+                    <span class="status-icon"></span>
+                </div>
+                <div class="queue-item-details">
+                    <div class="queue-item-primary">
+                        <strong>${inputDirName}</strong> → <strong>${outputDirName}</strong>
+                    </div>
+                    <div class="queue-item-secondary">
+                        Recipe: ${item.config.recipe} | Mode: ${item.config.stackingMode}
+                        ${item.error ? `<br><span style="color: #f44336;">Error: ${item.error}</span>` : ''}
+                    </div>
+                </div>
+                <div class="queue-item-actions">
+                    ${item.status === 'pending' ? `
+                        <button class="icon-button" onclick="moveQueueItemUp('${item.id}')"
+                                ${index === 0 ? 'disabled' : ''} title="Move Up">↑</button>
+                        <button class="icon-button" onclick="moveQueueItemDown('${item.id}')"
+                                ${index === stackingQueue.length - 1 ? 'disabled' : ''} title="Move Down">↓</button>
+                    ` : ''}
+                    ${item.status !== 'processing' ? `
+                        <button class="icon-button delete" onclick="removeQueueItem('${item.id}')" title="Remove">×</button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Enable/disable buttons based on queue state
+    const hasPending = stackingQueue.some(i => i.status === 'pending');
+    const hasCompleted = stackingQueue.some(i =>
+        i.status === 'completed' || i.status === 'failed' || i.status === 'cancelled'
+    );
+
+    startBatchBtn.disabled = !hasPending;
+    clearCompletedBtn.disabled = !hasCompleted;
+}
+
+// Execute single stacking job with progress dialog
+async function executeStackingJob(config) {
+    return new Promise((resolve) => {
+        // Show progress dialog (reuse existing one)
+        const progressDialog = document.getElementById('progressDialog');
+        const progressBar = progressDialog.querySelector('.progress-bar');
+        const progressText = progressDialog.querySelector('.progress-text');
+        const progressLog = progressDialog.querySelector('.progress-log');
+        const cancelBtn = document.getElementById('cancelStackingBtn');
+
+        progressDialog.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        progressText.textContent = 'Starting...';
+        progressLog.innerHTML = '';
+
+        let cancelled = false;
+
+        // Set up cancel handler
+        const cancelHandler = () => {
+            cancelled = true;
+            cancelCurrentStack(); // Call existing cancel function
+        };
+
+        cancelBtn.onclick = cancelHandler;
+
+        // Set up progress listener
+        const unlisten = listen('stacking-progress', (event) => {
+            const data = event.payload;
+
+            if (data.type === 'progress') {
+                const percent = (data.current / data.total) * 100;
+                progressBar.style.width = `${percent}%`;
+                progressText.textContent = `Processing frame ${data.current} of ${data.total}`;
+            } else if (data.type === 'log') {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = data.message;
+                progressLog.appendChild(logEntry);
+                progressLog.scrollTop = progressLog.scrollHeight;
+            } else if (data.type === 'complete') {
+                unlisten.then(fn => fn());
+                progressDialog.classList.add('hidden');
+                resolve(!cancelled);
+            } else if (data.type === 'error') {
+                unlisten.then(fn => fn());
+                progressDialog.classList.add('hidden');
+                resolve(false);
+            }
+        });
+
+        // Start stacking via Rust backend
+        invoke('start_stacking', { config }).catch(error => {
+            console.error('Stacking error:', error);
+            unlisten.then(fn => fn());
+            progressDialog.classList.add('hidden');
+            resolve(false);
+        });
+
+        // Check if cancelled during processing
+        const checkCancelled = setInterval(() => {
+            if (cancelled) {
+                clearInterval(checkCancelled);
+                unlisten.then(fn => fn());
+                progressDialog.classList.add('hidden');
+                resolve('cancelled');
+            }
+        }, 500);
+    });
+}
+
+// Show cancel queue dialog
+function showCancelQueueDialog() {
+    return new Promise((resolve) => {
+        const response = confirm(
+            'Cancel the entire queue or just the current job?\n\n' +
+            'OK = Cancel entire queue\n' +
+            'Cancel = Skip current job, continue queue'
+        );
+        resolve(response);
+    });
+}
+
+// Start batch processing
+async function startBatchProcessing() {
+    const pendingJobs = stackingQueue.filter(item => item.status === 'pending');
+
+    if (pendingJobs.length === 0) {
+        alert('No pending jobs to process');
+        return;
+    }
+
+    if (!confirm(`Start processing ${pendingJobs.length} job(s)?`)) {
+        return;
+    }
+
+    // Close queue dialog
+    closeQueueDialog();
+
+    isBatchProcessing = true;
+
+    for (let i = 0; i < stackingQueue.length; i++) {
+        const item = stackingQueue[i];
+
+        if (item.status !== 'pending') continue;
+
+        currentBatchIndex = i;
+        item.status = 'processing';
+        saveQueue();
+
+        try {
+            // Execute stacking with progress dialog
+            const success = await executeStackingJob(item.config);
+
+            if (success === 'cancelled') {
+                // Ask user: cancel current or entire queue?
+                const cancelAll = await showCancelQueueDialog();
+
+                if (cancelAll) {
+                    // Cancel entire queue
+                    item.status = 'cancelled';
+                    // Mark all remaining pending as cancelled
+                    for (let j = i + 1; j < stackingQueue.length; j++) {
+                        if (stackingQueue[j].status === 'pending') {
+                            stackingQueue[j].status = 'cancelled';
+                        }
+                    }
+                    saveQueue();
+                    break; // Exit batch processing loop
+                } else {
+                    // Cancel only current job, continue with queue
+                    item.status = 'cancelled';
+                    saveQueue();
+                    continue;
+                }
+            } else if (success) {
+                item.status = 'completed';
+            } else {
+                item.status = 'failed';
+                item.error = 'Stacking failed';
+            }
+        } catch (error) {
+            item.status = 'failed';
+            item.error = error.message || 'Unknown error';
+            console.error('Batch processing error:', error);
+        }
+
+        saveQueue();
+    }
+
+    isBatchProcessing = false;
+    currentBatchIndex = -1;
+
+    // Show completion summary
+    const completed = stackingQueue.filter(i => i.status === 'completed').length;
+    const failed = stackingQueue.filter(i => i.status === 'failed').length;
+    const cancelled = stackingQueue.filter(i => i.status === 'cancelled').length;
+
+    alert(`Batch processing complete!\n\nCompleted: ${completed}\nFailed: ${failed}\nCancelled: ${cancelled}`);
+}
+
+// ==================== End Queue Management System ====================
+
 // Initialize
 async function init() {
     // Try to restore saved window position first
@@ -159,12 +603,21 @@ async function init() {
         statusEl.textContent = `Error: ${error}`;
     }
 
+    // Load queue on startup
+    loadQueue();
+
     // Set up event listeners
     browseInputBtn.addEventListener('click', browseInputDirectory);
     browseOutputBtn.addEventListener('click', browseOutputDirectory);
     startButton.addEventListener('click', startStacking);
     openOutputButton.addEventListener('click', openOutputFolder);
     cancelStackingButton.addEventListener('click', cancelStacking);
+
+    // Queue system event listeners
+    document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
+    document.getElementById('viewQueueBtn').addEventListener('click', openQueueDialog);
+    document.getElementById('startBatchBtn').addEventListener('click', startBatchProcessing);
+    document.getElementById('clearCompletedBtn').addEventListener('click', clearCompleted);
 
     // Maximized image overlay - close on click
     maximizedImageOverlay.addEventListener('click', () => {
@@ -262,10 +715,19 @@ async function init() {
 
     // ESC key to close dialogs
     document.addEventListener('keydown', (event) => {
+        // Cmd/Ctrl + Shift + Q = Open Queue Dialog
+        if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'q') {
+            event.preventDefault();
+            openQueueDialog();
+            return;
+        }
+
         if (event.key === 'Escape') {
             // Check which dialog is open and close it
             if (maximizedImageOverlay.style.display === 'flex') {
                 maximizedImageOverlay.style.display = 'none';
+            } else if (!document.getElementById('queueDialog').classList.contains('hidden')) {
+                closeQueueDialog();
             } else if (document.getElementById('recipeEditorDialog').style.display === 'block') {
                 closeRecipeEditor();
             } else if (document.getElementById('recipePreviewDialog').style.display === 'block') {
@@ -707,9 +1169,20 @@ async function browseOutputDirectory() {
 
 function updateStartButtonState() {
     startButton.disabled = !(inputDirPath && outputDirPath);
+    // Add to Queue button only needs input directory
+    const addToQueueBtn = document.getElementById('addToQueueBtn');
+    if (addToQueueBtn) {
+        addToQueueBtn.disabled = !inputDirPath;
+    }
 }
 
 async function startStacking() {
+    // Check if batch processing is already running
+    if (isBatchProcessing) {
+        alert('Batch processing is already running. Please wait or cancel the current batch.');
+        return;
+    }
+
     // Collect configuration
     const config = {
         input_path: inputDirPath,

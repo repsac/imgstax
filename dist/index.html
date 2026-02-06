@@ -8,7 +8,10 @@
 </head>
 <body>
     <div class="header">
-        <button class="preferences-btn" id="preferencesBtn" title="Preferences">⚙️</button>
+        <div class="header-buttons">
+            <button class="preferences-btn" id="viewQueueBtn" title="View Queue">📋</button>
+            <button class="preferences-btn" id="preferencesBtn" title="Preferences">⚙️</button>
+        </div>
         <div class="header-content">
             <img src="assets/logo_imgstax.png" alt="imgstax" class="header-logo">
             <div class="header-right">
@@ -151,7 +154,11 @@
                 </div>
             </div>
 
-                <button id="startButton" disabled>Start Stacking</button>
+                <div class="button-group">
+                    <button id="startButton" class="primary" disabled>Start Stacking</button>
+                    <button id="addToQueueBtn" class="secondary" disabled>Add to Queue</button>
+                    <span id="queueBadge" class="queue-badge hidden">0</span>
+                </div>
             </div>
 
             <div class="file-browser-panel" id="fileBrowserPanel">
@@ -453,6 +460,29 @@
             <button id="loadFromPreview" class="primary" style="display: none;">Load Recipe</button>
             <button id="editFromPreview" class="secondary" style="display: none;">Edit Recipe</button>
             <button id="closePreview" class="secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- Queue Dialog -->
+    <div id="queueDialog" class="dialog-overlay hidden">
+        <div class="dialog-content queue-dialog">
+            <div class="dialog-header">
+                <h2>Stacking Queue</h2>
+                <button class="close-button" onclick="closeQueueDialog()">×</button>
+            </div>
+
+            <div class="queue-list-container">
+                <div id="emptyQueueMessage" class="empty-message">
+                    No jobs in queue. Add a stacking job to get started.
+                </div>
+                <div id="queueList" class="queue-list"></div>
+            </div>
+
+            <div class="dialog-actions">
+                <button id="clearCompletedBtn" class="secondary">Clear Completed</button>
+                <button id="startBatchBtn" class="primary" disabled>Start Batch Processing</button>
+                <button onclick="closeQueueDialog()" class="secondary">Close</button>
+            </div>
         </div>
     </div>
 
