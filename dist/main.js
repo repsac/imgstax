@@ -156,17 +156,20 @@ function saveQueue() {
     }
 }
 
-// Update queue badge count
+// Update queue badge count and button state
 function updateQueueBadge() {
-    const badge = document.getElementById('queueBadge');
-    if (!badge) return; // Element might not exist yet
-
     const pendingCount = stackingQueue.filter(item => item.status === 'pending').length;
-    if (pendingCount > 0) {
-        badge.textContent = pendingCount;
-        badge.classList.remove('hidden');
-    } else {
-        badge.classList.add('hidden');
+
+    // Update "Open Queue" button
+    const openQueueBtn = document.getElementById('openQueueBtn');
+    if (openQueueBtn) {
+        if (pendingCount > 0) {
+            openQueueBtn.textContent = `Open Queue (${pendingCount})`;
+            openQueueBtn.disabled = false;
+        } else {
+            openQueueBtn.textContent = 'Open Queue';
+            openQueueBtn.disabled = true;
+        }
     }
 }
 
@@ -182,8 +185,8 @@ function generateUUID() {
 // Helper to collect form configuration
 function collectFormConfig() {
     return {
-        inputDir: document.getElementById('inputDirectory').value.trim(),
-        outputDir: document.getElementById('outputDirectory').value.trim(),
+        inputDir: document.getElementById('inputDir').value.trim(),
+        outputDir: document.getElementById('outputDir').value.trim(),
         recipe: document.getElementById('recipeSelect').value,
         quality: parseInt(document.getElementById('quality').value),
         pngCompressLevel: parseInt(document.getElementById('pngCompressLevel').value),
@@ -203,7 +206,7 @@ function collectFormConfig() {
 // Add job to queue
 async function addToQueue() {
     // Validate input directory first
-    const inputDir = document.getElementById('inputDirectory').value.trim();
+    const inputDir = document.getElementById('inputDir').value.trim();
     if (!inputDir) {
         alert('Please select an input directory');
         return;
@@ -250,7 +253,7 @@ async function addToQueue() {
     saveQueue();
 
     // Clear only output directory field
-    document.getElementById('outputDirectory').value = '';
+    document.getElementById('outputDir').value = '';
 
     // Show confirmation
     alert(`Added to queue! ${stackingQueue.filter(i => i.status === 'pending').length} job(s) pending.`);
@@ -615,6 +618,7 @@ async function init() {
 
     // Queue system event listeners
     document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
+    document.getElementById('openQueueBtn').addEventListener('click', openQueueDialog);
     document.getElementById('viewQueueBtn').addEventListener('click', openQueueDialog);
     document.getElementById('startBatchBtn').addEventListener('click', startBatchProcessing);
     document.getElementById('clearCompletedBtn').addEventListener('click', clearCompleted);
