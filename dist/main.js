@@ -86,6 +86,21 @@ async function restoreWindowPosition() {
     }
 }
 
+// Shared function to load and parse user recipe
+async function loadUserRecipeYaml(recipeId) {
+    try {
+        const yamlContent = await invoke('load_user_recipe', { recipeId });
+        try {
+            const recipe = jsyaml.load(yamlContent);
+            return { success: true, recipe, yamlContent };
+        } catch (yamlError) {
+            return { success: false, error: `Invalid YAML format: ${yamlError.message}` };
+        }
+    } catch (error) {
+        return { success: false, error: error.toString() };
+    }
+}
+
 // Initialize
 async function init() {
     // Try to restore saved window position first
@@ -185,10 +200,9 @@ async function init() {
             // Show edit button for user recipes
             editRecipeBtn.style.display = 'block';
 
-            try {
-                const yamlContent = await invoke('load_user_recipe', { recipeId });
-                const recipe = jsyaml.load(yamlContent);
-                const settings = recipe.settings || {};
+            const result = await loadUserRecipeYaml(recipeId);
+            if (result.success) {
+                const settings = result.recipe.settings || {};
 
                 // Populate form with recipe settings
                 if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
@@ -201,9 +215,9 @@ async function init() {
                 if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
                 if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
                 if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
-            } catch (error) {
-                console.error('Error loading user recipe:', error);
-                alert('Failed to load recipe: ' + error);
+            } else {
+                console.error('Error loading user recipe:', result.error);
+                alert('Failed to load recipe: ' + result.error);
             }
         } else {
             // Built-in recipe or custom settings
@@ -817,30 +831,30 @@ async function openRecipeEditor(recipeId = null) {
         document.getElementById('duplicateRecipe').style.display = 'inline-block';
         document.getElementById('deleteRecipe').style.display = 'inline-block';
 
-        try {
-            const yamlContent = await invoke('load_user_recipe', { recipeId });
-            const recipe = jsyaml.load(yamlContent);
-
-            // Populate form with recipe data
-            document.getElementById('recipeName').value = recipe.name || '';
-            document.getElementById('recipeDescription').value = recipe.description || '';
-
-            const settings = recipe.settings || {};
-            document.getElementById('recipeStacking').value = settings.stacking || 'maximum';
-            document.getElementById('recipeQuality').value = settings.quality || 95;
-            document.getElementById('recipePngCompress').value = settings.png_compress_level || 6;
-            document.getElementById('recipeTiffCompression').value = settings.tiff_compression || 'deflate';
-            document.getElementById('recipeTrailLength').value = settings.trail_length || 0;
-            document.getElementById('recipeFrameInterval').value = settings.step || 1;
-            document.getElementById('recipeTrailGradient').checked = settings.trail_gradient || false;
-            document.getElementById('recipeGradientDecay').value = settings.gradient_decay || 0.85;
-            document.getElementById('recipeGradientPlateau').value = settings.gradient_plateau || 0;
-            document.getElementById('recipeFadeOut').checked = settings.fade_out || false;
-        } catch (error) {
-            console.error('Error loading recipe:', error);
-            alert('Failed to load recipe: ' + error);
+        const result = await loadUserRecipeYaml(recipeId);
+        if (!result.success) {
+            console.error('Error loading recipe:', result.error);
+            alert('Failed to load recipe: ' + result.error);
             return;
         }
+
+        const recipe = result.recipe;
+
+        // Populate form with recipe data
+        document.getElementById('recipeName').value = recipe.name || '';
+        document.getElementById('recipeDescription').value = recipe.description || '';
+
+        const settings = recipe.settings || {};
+        document.getElementById('recipeStacking').value = settings.stacking || 'maximum';
+        document.getElementById('recipeQuality').value = settings.quality || 95;
+        document.getElementById('recipePngCompress').value = settings.png_compress_level || 6;
+        document.getElementById('recipeTiffCompression').value = settings.tiff_compression || 'deflate';
+        document.getElementById('recipeTrailLength').value = settings.trail_length || 0;
+        document.getElementById('recipeFrameInterval').value = settings.step || 1;
+        document.getElementById('recipeTrailGradient').checked = settings.trail_gradient || false;
+        document.getElementById('recipeGradientDecay').value = settings.gradient_decay || 0.85;
+        document.getElementById('recipeGradientPlateau').value = settings.gradient_plateau || 0;
+        document.getElementById('recipeFadeOut').checked = settings.fade_out || false;
     } else {
         // New recipe mode - generate a new UUID
         currentEditingRecipeId = generateUUID();
@@ -1535,20 +1549,19 @@ async function updatePreviewContent(recipeId) {
         } else if (recipeId.startsWith('user:')) {
             // Handle user recipe
             const userId = recipeId.substring(5); // Remove 'user:' prefix
-            try {
-                const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
-                const recipe = jsyaml.load(yamlContent);
+            const result = await loadUserRecipeYaml(userId);
 
-                recipeName = recipe.name || 'Unnamed Recipe';
-                recipeDescription = recipe.description || 'No description provided.';
-                settings = recipe.settings || {};
-                isUserRecipe = true;
-            } catch (error) {
-                console.error('Error loading user recipe:', error);
-                alert('Failed to load recipe: ' + error);
+            if (!result.success) {
+                console.error('Error loading user recipe:', result.error);
+                alert('Failed to load recipe: ' + result.error);
                 closeRecipePreview();
                 return;
             }
+
+            recipeName = result.recipe.name || 'Unnamed Recipe';
+            recipeDescription = result.recipe.description || 'No description provided.';
+            settings = result.recipe.settings || {};
+            isUserRecipe = true;
         } else {
             throw new Error('Invalid recipe ID format');
         }
@@ -1633,14 +1646,13 @@ async function loadFromPreview() {
         } else if (currentPreviewRecipeId.startsWith('user:')) {
             // Handle user recipe
             const userId = currentPreviewRecipeId.substring(5); // Remove 'user:' prefix
-            const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
-            let recipe;
-            try {
-                recipe = jsyaml.load(yamlContent);
-            } catch (yamlError) {
-                throw new Error('Invalid YAML format in recipe file: ' + yamlError.message);
+            const result = await loadUserRecipeYaml(userId);
+
+            if (!result.success) {
+                throw new Error('Failed to load recipe: ' + result.error);
             }
-            settings = recipe.settings || {};
+
+            settings = result.recipe.settings || {};
         } else {
             throw new Error('Invalid recipe ID format');
         }

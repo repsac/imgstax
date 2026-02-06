@@ -31,10 +31,23 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 }
 
 /// Get the Python interpreter path.
-/// In development, uses the system Python.
+/// In development, uses the system Python from PATH.
 /// In production, this won't be used as we'll have the bundled binary.
 fn get_python_path() -> String {
-    "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
+    // Try common Python command names in order of preference
+    for cmd in &["python3", "python"] {
+        if let Ok(output) = Command::new(cmd)
+            .arg("--version")
+            .output()
+        {
+            if output.status.success() {
+                return cmd.to_string();
+            }
+        }
+    }
+
+    // Fallback to python3 if lookup fails (will error if not found when used)
+    "python3".to_string()
 }
 
 /// Get the path to the imgstax executable.
