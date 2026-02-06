@@ -581,13 +581,7 @@ button.secondary:hover {
     font-weight: 500;
 }
 
-#startButton {
-    width: 100%;
-    padding: 16px;
-    margin-top: 32px;
-    font-size: 16px;
-    background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
-}
+/* Start button styling removed - now handled by .button-group */
 
 #progressDialog {
     display: none;
