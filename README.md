@@ -55,6 +55,33 @@ Optional:
 ## Usage
 
 ### Basic Usage
+
+#### Desktop GUI Application
+
+imgstax includes a native desktop application built with Tauri, providing an intuitive graphical interface:
+
+**Features:**
+- Visual file browser with image preview
+- Built-in recipe editor for creating and managing custom recipes
+- Real-time progress monitoring
+- Form-based parameter configuration
+- 12 color themes (including Light, Dark, Desert, Forest, Utah, Yosemite)
+- Persistent preferences
+
+**Running the GUI:**
+```bash
+cd desktop-app
+npm run dev
+```
+
+**Recipe Editor:**
+- Access via the recipe dropdown: "✎ Recipe Editor"
+- Create, edit, and delete custom recipes
+- User recipes stored in OS-appropriate config directories
+- Compatible with CLI recipes
+
+#### Command-Line Interface
+
 ```bash
 # Stack all images in a directory using maximum intensity
 python imgstax.py /path/to/images
@@ -161,7 +188,23 @@ python -m imgstax images/ --recipe traffic -q 100
 
 ### Creating Custom Recipes
 
-Create YAML files in `~/.imgstax/recipes/`:
+#### Using the Desktop GUI Recipe Editor
+
+The Desktop GUI includes a built-in Recipe Editor for creating and managing custom recipes:
+
+1. Select "✎ Recipe Editor" from the recipe dropdown
+2. Fill in the recipe details (name, description, settings)
+3. Click "Save Recipe" to create your custom recipe
+4. User recipes appear in the dropdown with a "(User)" suffix
+
+User recipes are stored in OS-appropriate locations:
+- **macOS**: `~/Library/Application Support/imgstax-desktop/user_recipes/`
+- **Linux**: `~/.config/imgstax-desktop/user_recipes/`
+- **Windows**: `%APPDATA%/imgstax-desktop/user_recipes/`
+
+#### Creating Recipes Manually (CLI)
+
+For CLI usage, create YAML files in `~/.imgstax/recipes/`:
 
 ```yaml
 name: "My Custom Recipe"

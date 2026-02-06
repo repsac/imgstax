@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use tauri::Emitter;
+use std::fs;
+use tauri::{Emitter, Manager};
 
 /// Get the Python interpreter path.
 /// In development, uses the system Python.
@@ -292,6 +293,149 @@ print(json.dumps(files))
     Ok(files)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct UserRecipeInfo {
+    id: String,
+    name: String,
+    description: String,
+}
+
+#[tauri::command]
+fn list_user_recipes(app: tauri::AppHandle) -> Result<Vec<UserRecipeInfo>, String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipes_dir = config_dir.join("user_recipes");
+
+    // Create directory if it doesn't exist
+    if !recipes_dir.exists() {
+        fs::create_dir_all(&recipes_dir)
+            .map_err(|e| format!("Failed to create recipes directory: {}", e))?;
+        return Ok(vec![]);
+    }
+
+    let mut recipes = vec![];
+
+    // Read all .yaml files in the directory
+    let entries = fs::read_dir(&recipes_dir)
+        .map_err(|e| format!("Failed to read recipes directory: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+            let content = fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read recipe file: {}", e))?;
+
+            // Parse YAML to get name and description
+            let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+                .map_err(|e| format!("Failed to parse YAML: {}", e))?;
+
+            let id = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let name = yaml.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&id)
+                .to_string();
+
+            let description = yaml.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            recipes.push(UserRecipeInfo { id, name, description });
+        }
+    }
+
+    // Sort by name for consistent ordering
+    recipes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(recipes)
+}
+
+#[tauri::command]
+fn load_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<String, String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    fs::read_to_string(&recipe_path)
+        .map_err(|e| format!("Failed to read recipe: {}", e))
+}
+
+#[tauri::command]
+fn save_user_recipe(app: tauri::AppHandle, recipe_id: String, content: String) -> Result<(), String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipes_dir = config_dir.join("user_recipes");
+
+    // Create directory if it doesn't exist
+    if !recipes_dir.exists() {
+        fs::create_dir_all(&recipes_dir)
+            .map_err(|e| format!("Failed to create recipes directory: {}", e))?;
+    }
+
+    let recipe_path = recipes_dir.join(format!("{}.yaml", recipe_id));
+
+    fs::write(&recipe_path, content)
+        .map_err(|e| format!("Failed to write recipe: {}", e))
+}
+
+#[tauri::command]
+fn delete_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<(), String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    fs::remove_file(&recipe_path)
+        .map_err(|e| format!("Failed to delete recipe: {}", e))
+}
+
+#[tauri::command]
+fn export_user_recipe(app: tauri::AppHandle, recipe_id: String, export_path: String) -> Result<(), String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    let content = fs::read_to_string(&recipe_path)
+        .map_err(|e| format!("Failed to read recipe: {}", e))?;
+
+    fs::write(&export_path, content)
+        .map_err(|e| format!("Failed to write export file: {}", e))
+}
+
+#[tauri::command]
+fn import_user_recipe_from_file(import_path: String) -> Result<String, String> {
+    let path = Path::new(&import_path);
+
+    if !path.exists() {
+        return Err(format!("Import file '{}' not found", import_path));
+    }
+
+    fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read import file: {}", e))
+}
+
 #[tauri::command]
 async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<StackResult, String> {
     // Construct absolute output path
@@ -403,6 +547,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -418,6 +563,12 @@ pub fn run() {
         get_recipes,
         validate_directory,
         get_file_list,
+        list_user_recipes,
+        load_user_recipe,
+        save_user_recipe,
+        delete_user_recipe,
+        export_user_recipe,
+        import_user_recipe_from_file,
         start_stacking,
         open_folder
     ])

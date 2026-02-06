@@ -178,6 +178,7 @@ body {
 }
 
 .header {
+    position: relative;
     text-align: center;
     padding: 40px 40px 20px;
     color: var(--text-light);
@@ -188,6 +189,13 @@ body {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
+.header-content {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+}
+
 .header h1 {
     font-size: 72px;
     font-weight: 700;
@@ -195,11 +203,29 @@ body {
     letter-spacing: -2px;
 }
 
+.header-logo {
+    max-width: 175px;
+    height: auto;
+    flex-shrink: 0;
+}
+
+.header-right {
+    text-align: right;
+    flex: 1;
+    margin-bottom: 15px;
+}
+
 .header .subtitle {
     font-size: 24px;
     font-weight: 400;
     opacity: 0.9;
-    margin-bottom: 12px;
+    margin-bottom: 0;
+}
+
+.header .status {
+    font-size: 14px;
+    opacity: 0.8;
+    margin-bottom: 4px;
 }
 
 .header .status {
@@ -396,6 +422,19 @@ input[type="text"]::placeholder {
 
 .directory-input input {
     flex: 1;
+}
+
+.recipe-input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.recipe-input-group select {
+    flex: 1;
+}
+
+.recipe-edit-btn {
+    white-space: nowrap;
 }
 
 button {
@@ -670,4 +709,169 @@ button.secondary:hover {
 
 .preferences-actions button {
     flex: 1;
+}
+
+/* Recipe Editor Dialog */
+#recipeEditorDialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-main);
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    max-width: 700px;
+    width: 90%;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+#recipeEditorDialog h2 {
+    margin: 0 0 24px 0;
+    color: var(--text-dark);
+    font-size: 28px;
+}
+
+#recipeEditorDialog h3 {
+    margin: 24px 0 16px 0;
+    color: var(--text-secondary);
+    font-size: 18px;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.recipe-editor-section {
+    margin-bottom: 24px;
+}
+
+.pref-group textarea {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    color: var(--text-dark);
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+    resize: vertical;
+}
+
+.pref-group textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background: var(--bg-main);
+}
+
+.recipe-editor-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.recipe-editor-actions button {
+    flex: 1;
+    min-width: 120px;
+}
+
+/* Recipe validation errors */
+.validation-error {
+    border-color: var(--error-color) !important;
+    background: rgba(231, 76, 60, 0.05) !important;
+}
+
+.field-error-message {
+    color: var(--error-color);
+    font-size: 12px;
+    margin-top: 4px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.field-error-message::before {
+    content: '⚠';
+    font-size: 14px;
+}
+
+/* Recipe Preview Dialog */
+#recipePreviewDialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-main);
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    max-width: 700px;
+    width: 90%;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+#recipePreviewDialog h2 {
+    margin: 0 0 24px 0;
+    color: var(--text-dark);
+    font-size: 28px;
+}
+
+#recipePreviewDialog h3 {
+    margin: 24px 0 16px 0;
+    color: var(--text-secondary);
+    font-size: 18px;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.recipe-preview-section {
+    margin-bottom: 24px;
+}
+
+.preview-recipe-name {
+    font-size: 24px;
+    color: var(--text-dark);
+    margin: 0 0 12px 0;
+}
+
+.preview-recipe-description {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.preview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+}
+
+.preview-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.preview-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.preview-value {
+    font-size: 15px;
+    color: var(--text-dark);
+    font-weight: 500;
 }
