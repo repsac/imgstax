@@ -2,10 +2,36 @@ use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use tauri::Emitter;
+use std::fs;
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, Manager};
+
+// Global storage for the stacking process handle
+static STACKING_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<u32>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+
+/// Validate recipe ID to prevent path traversal attacks.
+/// Recipe IDs must not contain path separators or parent directory references.
+fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
+    if recipe_id.is_empty() {
+        return Err("Recipe ID cannot be empty".to_string());
+    }
+
+    // Check for path separators and parent directory references
+    if recipe_id.contains('/') || recipe_id.contains('\\') || recipe_id.contains("..") {
+        return Err(format!("Invalid recipe ID '{}': cannot contain path separators or '..'", recipe_id));
+    }
+
+    // Check for null bytes
+    if recipe_id.contains('\0') {
+        return Err("Invalid recipe ID: cannot contain null bytes".to_string());
+    }
+
+    Ok(())
+}
 
 /// Get the Python interpreter path.
-/// In development, uses the system Python.
+/// In development, uses the hardcoded pyenv Python path.
 /// In production, this won't be used as we'll have the bundled binary.
 fn get_python_path() -> String {
     "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
@@ -117,16 +143,19 @@ fn open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 fn get_recipes() -> Result<Vec<Recipe>, String> {
     // Call Python to get recipe list
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(r#"
+    let python_code = r#"
 import sys
 import json
 sys.path.insert(0, '../..')
 from imgstax.recipe_loader import get_recipe_details
 recipes = get_recipe_details()
 print(json.dumps(recipes))
-"#)
+"#;
+
+    // Call Python to get recipe list
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
 
@@ -168,9 +197,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
     // Escape the path properly for Python
     let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(format!(r#"
+    let python_code = format!(r#"
 import sys
 import os
 import io
@@ -197,7 +224,11 @@ for img in images:
 sys.stdout = real_stdout
 result = {{'count': len(images), 'formats': sorted(list(formats))}}
 print(json.dumps(result))
-"#, escaped_path))
+"#, escaped_path);
+
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
@@ -254,9 +285,7 @@ fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
     // Escape the path properly for Python
     let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(format!(r#"
+    let python_code = format!(r#"
 import sys
 import os
 import io
@@ -275,7 +304,11 @@ files = []
 for idx, img in enumerate(images):
     files.append({{"index": idx, "filename": img.name, "path": str(img)}})
 print(json.dumps(files))
-"#, escaped_path))
+"#, escaped_path);
+
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
@@ -290,6 +323,193 @@ print(json.dumps(files))
         .map_err(|e| format!("Failed to parse file list: {}", e))?;
 
     Ok(files)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UserRecipeInfo {
+    id: String,
+    name: String,
+    description: String,
+}
+
+#[tauri::command]
+fn list_user_recipes(app: tauri::AppHandle) -> Result<Vec<UserRecipeInfo>, String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipes_dir = config_dir.join("user_recipes");
+
+    // Create directory if it doesn't exist
+    if !recipes_dir.exists() {
+        fs::create_dir_all(&recipes_dir)
+            .map_err(|e| format!("Failed to create recipes directory: {}", e))?;
+        return Ok(vec![]);
+    }
+
+    let mut recipes = vec![];
+
+    // Read all .yaml files in the directory
+    let entries = fs::read_dir(&recipes_dir)
+        .map_err(|e| format!("Failed to read recipes directory: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+            let content = fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read recipe file: {}", e))?;
+
+            // Parse YAML to get name and description
+            let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+                .map_err(|e| format!("Failed to parse YAML: {}", e))?;
+
+            let id = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let name = yaml.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&id)
+                .to_string();
+
+            let description = yaml.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            recipes.push(UserRecipeInfo { id, name, description });
+        }
+    }
+
+    // Sort by name for consistent ordering
+    recipes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(recipes)
+}
+
+#[tauri::command]
+fn load_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<String, String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    fs::read_to_string(&recipe_path)
+        .map_err(|e| format!("Failed to read recipe: {}", e))
+}
+
+#[tauri::command]
+fn save_user_recipe(app: tauri::AppHandle, recipe_id: String, content: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipes_dir = config_dir.join("user_recipes");
+
+    // Create directory if it doesn't exist
+    if !recipes_dir.exists() {
+        fs::create_dir_all(&recipes_dir)
+            .map_err(|e| format!("Failed to create recipes directory: {}", e))?;
+    }
+
+    let recipe_path = recipes_dir.join(format!("{}.yaml", recipe_id));
+
+    fs::write(&recipe_path, content)
+        .map_err(|e| format!("Failed to write recipe: {}", e))
+}
+
+#[tauri::command]
+fn delete_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    fs::remove_file(&recipe_path)
+        .map_err(|e| format!("Failed to delete recipe: {}", e))
+}
+
+#[tauri::command]
+fn export_user_recipe(app: tauri::AppHandle, recipe_id: String, export_path: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    let recipe_path = config_dir.join("user_recipes").join(format!("{}.yaml", recipe_id));
+
+    if !recipe_path.exists() {
+        return Err(format!("Recipe '{}' not found", recipe_id));
+    }
+
+    let content = fs::read_to_string(&recipe_path)
+        .map_err(|e| format!("Failed to read recipe: {}", e))?;
+
+    fs::write(&export_path, content)
+        .map_err(|e| format!("Failed to write export file: {}", e))
+}
+
+#[tauri::command]
+fn import_user_recipe_from_file(import_path: String) -> Result<String, String> {
+    let path = Path::new(&import_path);
+
+    if !path.exists() {
+        return Err(format!("Import file '{}' not found", import_path));
+    }
+
+    fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read import file: {}", e))
+}
+
+#[tauri::command]
+fn cancel_stacking() -> Result<(), String> {
+    let mut process_lock = STACKING_PROCESS.lock()
+        .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+
+    if let Some(pid) = *process_lock {
+        #[cfg(unix)]
+        {
+            // On Unix systems (macOS, Linux), use kill command
+            use std::process::Command;
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .output();
+        }
+
+        #[cfg(windows)]
+        {
+            // On Windows, use taskkill command
+            use std::process::Command;
+            let _ = Command::new("taskkill")
+                .args(&["/PID", &pid.to_string(), "/F"])
+                .output();
+        }
+
+        *process_lock = None;
+        Ok(())
+    } else {
+        Err("No stacking process is currently running".to_string())
+    }
 }
 
 #[tauri::command]
@@ -370,6 +590,14 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         .spawn()
         .map_err(|e| format!("Failed to execute stacking: {}", e))?;
 
+    // Store the process ID for potential cancellation
+    let pid = child.id();
+    {
+        let mut process_lock = STACKING_PROCESS.lock()
+            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+        *process_lock = Some(pid);
+    }
+
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let reader = BufReader::new(stdout);
 
@@ -383,11 +611,18 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
 
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
 
+    // Clear the process ID from storage since it's done
+    {
+        let mut process_lock = STACKING_PROCESS.lock()
+            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+        *process_lock = None;
+    }
+
     if !status.success() {
         return Ok(StackResult {
             success: false,
             output_dir: String::new(),
-            error: Some("Stacking failed".to_string()),
+            error: Some("Stacking failed or was cancelled".to_string()),
         });
     }
 
@@ -403,6 +638,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -418,7 +654,14 @@ pub fn run() {
         get_recipes,
         validate_directory,
         get_file_list,
+        list_user_recipes,
+        load_user_recipe,
+        save_user_recipe,
+        delete_user_recipe,
+        export_user_recipe,
+        import_user_recipe_from_file,
         start_stacking,
+        cancel_stacking,
         open_folder
     ])
     .run(tauri::generate_context!())

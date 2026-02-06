@@ -1,16 +1,19 @@
-# imgstax - Image Stacking Tool
+# imgstax - Image Sequence Stacking Tool
 
-A powerful Python tool for stacking image sequences using various mathematical operations. Perfect for astrophotography, creating star trails, simulating long exposures, noise reduction, and artistic time-lapse effects.
+A specialized tool for creating **animated progressions** from image sequences using various stacking algorithms. imgstax processes sequential frames (from timelapse or video) to generate frame-by-frame stacked outputs, perfect for star trail animations, time-lapse effects, and visualizing motion over time.
+
+**What imgstax does:** Progressive stacking of sequential frames to create animations
+**What imgstax doesn't do:** Complex single-image stacking with calibration frames (use [StarStax](https://markus-enzweiler.de/software/starstax/), Photoshop, or Affinity Photo instead)
 
 ## Features
 
 ### Core Functionality
+- **Progressive Sequential Stacking**: Creates animated sequences where each output frame is a stack of previous input frames
 - **Multiple Stacking Algorithms**: maximum, minimum, mean, median, standard deviation, summation, variance, and range
-- **Progressive Stacking**: Creates a sequence where each frame is a stack of all previous frames
-- **Trail Control**: Limit trail length for sliding window effects
+- **Sliding Window Effects**: Limit trail length for moving window stacking (e.g., last 20 frames only)
 - **Trail Gradient**: Comet tail effect with progressive fade along the trail
 - **Fade Out**: Gradually fade trails at the end of sequences
-- **Frame Selection**: Start, stop, and step parameters for selective processing
+- **Frame Selection**: Start, stop, and step parameters for selective processing from your sequence
 - **Dry Run Mode**: Test operations without creating output files
 
 ### Enhanced Features (v2.0+)
@@ -52,6 +55,33 @@ Optional:
 ## Usage
 
 ### Basic Usage
+
+#### Desktop GUI Application
+
+imgstax includes a native desktop application built with Tauri, providing an intuitive graphical interface:
+
+**Features:**
+- Visual file browser with image preview
+- Built-in recipe editor for creating and managing custom recipes
+- Real-time progress monitoring
+- Form-based parameter configuration
+- 12 color themes (including Light, Dark, Desert, Forest, Utah, Yosemite)
+- Persistent preferences
+
+**Running the GUI:**
+```bash
+cd desktop-app
+npm run dev
+```
+
+**Recipe Editor:**
+- Access via the recipe dropdown: "✎ Recipe Editor"
+- Create, edit, and delete custom recipes
+- User recipes stored in OS-appropriate config directories
+- Compatible with CLI recipes
+
+#### Command-Line Interface
+
 ```bash
 # Stack all images in a directory using maximum intensity
 python imgstax.py /path/to/images
@@ -158,7 +188,23 @@ python -m imgstax images/ --recipe traffic -q 100
 
 ### Creating Custom Recipes
 
-Create YAML files in `~/.imgstax/recipes/`:
+#### Using the Desktop GUI Recipe Editor
+
+The Desktop GUI includes a built-in Recipe Editor for creating and managing custom recipes:
+
+1. Select "✎ Recipe Editor" from the recipe dropdown
+2. Fill in the recipe details (name, description, settings)
+3. Click "Save Recipe" to create your custom recipe
+4. User recipes appear in the dropdown with a "(User)" suffix
+
+User recipes are stored in OS-appropriate locations:
+- **macOS**: `~/Library/Application Support/imgstax-desktop/user_recipes/`
+- **Linux**: `~/.config/imgstax-desktop/user_recipes/`
+- **Windows**: `%APPDATA%/imgstax-desktop/user_recipes/`
+
+#### Creating Recipes Manually (CLI)
+
+For CLI usage, create YAML files in `~/.imgstax/recipes/`:
 
 ```yaml
 name: "My Custom Recipe"
@@ -397,22 +443,30 @@ imgstax/
 
 ## Use Cases
 
-### Astrophotography
-- Star trail images
-- Deep sky stacking for noise reduction
-- Meteor shower composites
-- Light pollution removal (median stacking)
+### When to Use imgstax
 
-### Photography
-- Simulated long exposures
-- People removal (median stacking)
-- Light trail effects from traffic
-- Fireworks composites
+**Perfect for:**
+- **Star Trail Animations**: Progressive stacking to create animated star trail sequences
+- **Time-Lapse Effects**: Stacking sequential frames to show motion accumulation over time
+- **Traffic Light Trails**: Animated progression of vehicle light trails
+- **Motion Visualization**: Creating frame-by-frame visualizations of movement
+- **Long Exposure Simulation**: Building up exposure across sequential frames
+- **Creative Sequential Art**: Artistic effects from time-based image sequences
 
-### Creative Effects
-- Motion blur visualization
-- Time compression
-- Artistic trails
+**Requires:**
+- Sequential image frames (from timelapse camera or video extraction)
+- Frames taken in order over time
+- Goal is to create an animated progression or sequence
+
+### When to Use Other Tools
+
+**For complex astrophotography stacking with calibration frames** (dark frames, flat frames, bias frames), use specialized tools:
+- **[StarStax](https://markus-enzweiler.de/software/starstax/)**: Excellent free tool for star trail stacking
+- **Adobe Photoshop or Affinity Photo**: Advanced layering and calibration
+- **DeepSkyStacker**: Specialized for deep sky astrophotography with calibration frames
+- **PixInsight**: Professional-grade astronomical image processing
+
+imgstax focuses on **progressive sequential stacking for animations**, not single-image perfection with calibration workflows.
 
 ## Performance Tips
 
@@ -471,11 +525,11 @@ Contributions welcome! Areas for future development:
 - Direct video input/output support (currently requires pre-extraction)
 - Parallel processing for speed improvements
 - Resume capability for interrupted processes
-- GUI interface
 - Additional stacking algorithms
-- Batch directory processing
 - Real-time preview mode
 - Automatic optimal parameter detection
+
+**Out of scope:** Calibration frame support (dark/flat/bias), alignment/registration, or complex single-image workflows. imgstax is intentionally focused on sequential progressive stacking for animations.
 
 ## Author
 
