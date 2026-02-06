@@ -511,7 +511,7 @@ async function browseInputDirectory() {
             inputDirEl.value = selected;
 
             // Validate directory
-            inputValidationEl.textContent = 'Validating...';
+            inputValidationEl.textContent = 'Validating directory (max 30s)...';
             inputValidationEl.className = 'validation-message';
 
             const result = await invokeWithTimeout('validate_directory', { path: selected }, 30000);
@@ -520,7 +520,7 @@ async function browseInputDirectory() {
                 const formatText = result.detected_formats && result.detected_formats.length > 0
                     ? ` (${result.detected_formats.map(f => f.toUpperCase()).join(', ')})`
                     : '';
-                inputValidationEl.textContent = `✓ Found ${result.image_count} images${formatText}`;
+                inputValidationEl.textContent = `Found ${result.image_count} images${formatText}`;
                 inputValidationEl.className = 'validation-message success';
                 updateStartButtonState();
 
@@ -530,7 +530,7 @@ async function browseInputDirectory() {
                 // Load file list
                 await loadFileList(selected);
             } else {
-                inputValidationEl.textContent = `✗ ${result.error}`;
+                inputValidationEl.textContent = result.error;
                 inputValidationEl.className = 'validation-message error';
                 startButton.disabled = true;
                 // Hide all format controls when validation fails
@@ -539,14 +539,14 @@ async function browseInputDirectory() {
         }
     } catch (error) {
         console.error('Error selecting directory:', error);
-        inputValidationEl.textContent = `✗ ${error}`;
+        inputValidationEl.textContent = error.toString();
         inputValidationEl.className = 'validation-message error';
     }
 }
 
 async function loadFileList(dirPath) {
     try {
-        fileListTitleEl.textContent = 'Loading files...';
+        fileListTitleEl.textContent = 'Loading files (max 30s)...';
         const files = await invokeWithTimeout('get_file_list', { path: dirPath }, 30000);
         allFiles = files;
         updateFileSelection();

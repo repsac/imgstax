@@ -246,6 +246,8 @@ body {
     border-radius: 0 0 12px 12px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
     height: 700px;
+    max-height: calc(100vh - 200px);
+    min-height: 500px;
 }
 
 .form-wrapper {
@@ -657,8 +659,20 @@ button.secondary:hover {
     color: var(--error-color);
 }
 
+.validation-message.error::before {
+    content: '✖ ';
+    font-weight: bold;
+    margin-right: 4px;
+}
+
 .validation-message.success {
     color: var(--success-color);
+}
+
+.validation-message.success::before {
+    content: '✓ ';
+    font-weight: bold;
+    margin-right: 4px;
 }
 
 ::-webkit-scrollbar {
