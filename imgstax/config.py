@@ -60,6 +60,12 @@ class StackConfig:
         if self.end_frame is not None and self.end_frame < 0:
             raise ValueError(f"End frame must be non-negative, got: {self.end_frame}")
 
+        if (self.start_frame is not None and self.end_frame is not None and
+            self.start_frame > self.end_frame):
+            raise ValueError(
+                f"Start frame ({self.start_frame}) must be less than or equal to end frame ({self.end_frame})"
+            )
+
         if self.trail_gradient and self.trail_length == 0:
             raise ValueError("Trail gradient requires trail_length > 0")
 
