@@ -158,6 +158,8 @@
                     <button id="startButton" class="primary" disabled>Start Stacking</button>
                     <button id="addToQueueBtn" class="secondary" disabled>Add to Queue</button>
                     <button id="openQueueBtn" class="secondary" disabled>Open Queue</button>
+                    <button id="updateQueueBtn" class="primary" style="display: none;">Update Queue</button>
+                    <button id="cancelEditBtn" class="secondary" style="display: none;">Cancel Editing</button>
                 </div>
             </div>
 
@@ -491,6 +493,22 @@
         <div class="maximized-container">
             <img id="maximizedImage" class="maximized-image" alt="Maximized preview">
             <div class="maximized-hint">Press ESC to close</div>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Dialog -->
+    <div id="customConfirmDialog" class="dialog-overlay hidden" style="z-index: 10000;">
+        <div class="dialog-content" style="max-width: 400px;">
+            <div class="dialog-header">
+                <h2 id="customConfirmTitle">Confirm</h2>
+            </div>
+            <div style="padding: 20px;">
+                <p id="customConfirmMessage"></p>
+            </div>
+            <div class="dialog-actions">
+                <button id="customConfirmOk" class="primary">OK</button>
+                <button id="customConfirmCancel" class="secondary">Cancel</button>
+            </div>
         </div>
     </div>
 
