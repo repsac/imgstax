@@ -979,3 +979,249 @@ button.secondary:hover {
     color: var(--text-dark);
     font-weight: 500;
 }
+
+/* ==================== Queue System Styles ==================== */
+
+/* Header buttons container */
+.header-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+/* Button group for stacking actions */
+.button-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    margin-top: 32px;
+}
+
+.button-group button {
+    flex: 1;
+    padding: 16px;
+    font-size: 16px;
+}
+
+.button-group .primary {
+    background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+}
+
+/* Queue badge */
+.queue-badge {
+    background: var(--primary-color);
+    color: var(--text-light);
+    border-radius: 50%;
+    padding: 6px 10px;
+    font-size: 14px;
+    font-weight: bold;
+    min-width: 32px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.queue-badge.hidden {
+    display: none;
+}
+
+/* Queue dialog overlay */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+}
+
+.dialog-overlay.hidden {
+    display: none;
+}
+
+/* Queue dialog content */
+.queue-dialog {
+    background: var(--bg-main);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 700px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 24px 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dialog-header h2 {
+    margin: 0;
+    font-size: 20px;
+    color: var(--text-dark);
+}
+
+.close-button {
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.close-button:hover {
+    background: var(--bg-secondary);
+    color: var(--text-dark);
+    transform: none;
+    box-shadow: none;
+}
+
+/* Queue list container */
+.queue-list-container {
+    padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 200px;
+}
+
+.queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.empty-message {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+/* Queue item */
+.queue-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s;
+}
+
+.queue-item:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.queue-item-status {
+    font-size: 24px;
+    min-width: 32px;
+    text-align: center;
+    line-height: 1;
+}
+
+.status-pending .status-icon::before {
+    content: '⏳';
+}
+
+.status-processing .status-icon::before {
+    content: '▶️';
+}
+
+.status-completed .status-icon::before {
+    content: '✓';
+    color: #4CAF50;
+}
+
+.status-failed .status-icon::before {
+    content: '✖';
+    color: #f44336;
+}
+
+.status-cancelled .status-icon::before {
+    content: '⊘';
+    color: #ff9800;
+}
+
+.queue-item-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.queue-item-primary {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-dark);
+}
+
+.queue-item-secondary {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.queue-item-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* Icon buttons */
+.icon-button {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-dark);
+    transition: all 0.2s;
+    min-width: 32px;
+}
+
+.icon-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.icon-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.icon-button.delete {
+    color: #f44336;
+}
+
+.icon-button.delete:hover:not(:disabled) {
+    background: rgba(244, 67, 54, 0.1);
+}
+
+/* Dialog actions */
+.dialog-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+}
+
+.dialog-actions button {
+    flex: 1;
+}
