@@ -715,6 +715,11 @@ async function executeStackingJob(config) {
                         }
                     }
 
+                    // Add filename if available
+                    if (data.file) {
+                        statusText += ` - ${data.file}`;
+                    }
+
                     progressText.textContent = statusText;
                 }
             });
