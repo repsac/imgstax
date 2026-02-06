@@ -22,9 +22,13 @@ const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const overlay = document.getElementById('overlay');
 const openOutputButton = document.getElementById('openOutputButton');
+const cancelStackingButton = document.getElementById('cancelStackingButton');
 const fileListEl = document.getElementById('fileList');
 const fileListTitleEl = document.getElementById('fileListTitle');
 const previewContentEl = document.getElementById('previewContent');
+const previewFilenameEl = document.getElementById('previewFilename');
+const maximizedImageOverlay = document.getElementById('maximizedImageOverlay');
+const maximizedImage = document.getElementById('maximizedImage');
 
 // Window position persistence
 function saveWindowPosition() {
@@ -133,6 +137,12 @@ async function init() {
     browseOutputBtn.addEventListener('click', browseOutputDirectory);
     startButton.addEventListener('click', startStacking);
     openOutputButton.addEventListener('click', openOutputFolder);
+    cancelStackingButton.addEventListener('click', cancelStacking);
+
+    // Maximized image overlay - close on click
+    maximizedImageOverlay.addEventListener('click', () => {
+        maximizedImageOverlay.style.display = 'none';
+    });
 
     // Recipe event listener (main form)
     // Recipe dropdown handler
@@ -228,14 +238,21 @@ async function init() {
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             // Check which dialog is open and close it
-            if (document.getElementById('recipeEditorDialog').style.display === 'block') {
+            if (maximizedImageOverlay.style.display === 'flex') {
+                maximizedImageOverlay.style.display = 'none';
+            } else if (document.getElementById('recipeEditorDialog').style.display === 'block') {
                 closeRecipeEditor();
             } else if (document.getElementById('recipePreviewDialog').style.display === 'block') {
                 closeRecipePreview();
             } else if (document.getElementById('preferencesDialog').style.display === 'block') {
                 closePreferences();
             } else if (document.getElementById('progressDialog').style.display === 'block') {
-                // Don't close progress dialog on ESC - user should wait for completion
+                // Only allow closing progress dialog if stacking is complete (cancel button hidden)
+                if (cancelStackingButton.style.display === 'none') {
+                    overlay.style.display = 'none';
+                    progressDialog.style.display = 'none';
+                    startButton.disabled = false;
+                }
             }
         }
     });
@@ -607,14 +624,40 @@ function previewImage(imagePath) {
     try {
         console.log('Preview image path:', imagePath);
 
+        // Extract filename from path
+        const filename = imagePath.split(/[/\\]/).pop();
+        previewFilenameEl.textContent = filename;
+
         // Convert file path to file URL for Tauri v2
         const imageUrl = convertFileSrc(imagePath);
         console.log('Converted image URL:', imageUrl);
 
-        previewContentEl.innerHTML = `<img src="${imageUrl}" class="preview-image" alt="Preview" onerror="console.error('Image failed to load:', '${imageUrl}'); this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">`;
+        previewContentEl.innerHTML = `
+            <img src="${imageUrl}" class="preview-image" alt="Preview" onerror="console.error('Image failed to load:', '${imageUrl}'); this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
+            <button class="maximize-button" id="maximizeButton">🔍 Maximize</button>
+        `;
+
+        // Add click handler for maximize button
+        const maximizeButton = document.getElementById('maximizeButton');
+        if (maximizeButton) {
+            maximizeButton.addEventListener('click', () => {
+                maximizedImage.src = imageUrl;
+                maximizedImageOverlay.style.display = 'flex';
+            });
+        }
+
+        // Add click handler for image itself
+        const previewImg = previewContentEl.querySelector('.preview-image');
+        if (previewImg) {
+            previewImg.addEventListener('click', () => {
+                maximizedImage.src = imageUrl;
+                maximizedImageOverlay.style.display = 'flex';
+            });
+        }
     } catch (error) {
         console.error('Error loading preview:', error);
         previewContentEl.innerHTML = '<div class="preview-empty">Error loading preview</div>';
+        previewFilenameEl.textContent = '';
     }
 }
 
@@ -667,6 +710,7 @@ async function startStacking() {
     progressFill.textContent = '0%';
     progressText.textContent = 'Starting...';
     openOutputButton.style.display = 'none';
+    cancelStackingButton.style.display = 'block';
     startButton.disabled = true;
 
     try {
@@ -675,9 +719,11 @@ async function startStacking() {
         if (result.success) {
             outputDirFromStack = result.output_dir;
             progressText.textContent = 'Stacking complete!';
+            cancelStackingButton.style.display = 'none';
             openOutputButton.style.display = 'block';
         } else {
             progressText.textContent = `Error: ${result.error}`;
+            cancelStackingButton.style.display = 'none';
             setTimeout(() => {
                 overlay.style.display = 'none';
                 progressDialog.style.display = 'none';
@@ -687,6 +733,7 @@ async function startStacking() {
     } catch (error) {
         console.error('Stacking error:', error);
         progressText.textContent = `Error: ${error}`;
+        cancelStackingButton.style.display = 'none';
         setTimeout(() => {
             overlay.style.display = 'none';
             progressDialog.style.display = 'none';
@@ -706,6 +753,34 @@ async function openOutputFolder() {
     } catch (error) {
         console.error('Error opening folder:', error);
         alert(`Failed to open folder: ${error}`);
+    }
+}
+
+async function cancelStacking() {
+    // Show confirmation dialog
+    const confirmed = confirm('Are you sure you want to cancel the stacking operation?');
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        await invoke('cancel_stacking');
+
+        // Update UI
+        progressText.textContent = 'Stacking cancelled';
+        cancelStackingButton.style.display = 'none';
+
+        // Close dialog after a brief delay
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            progressDialog.style.display = 'none';
+            startButton.disabled = false;
+        }, 1500);
+    } catch (error) {
+        console.error('Error cancelling stacking:', error);
+        progressText.textContent = `Failed to cancel: ${error}`;
+        cancelStackingButton.style.display = 'none';
     }
 }
 
