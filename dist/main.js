@@ -3,6 +3,16 @@ const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 const { getCurrentWindow, currentMonitor } = window.__TAURI__.window;
 
+// Helper function to add timeout to invoke calls
+async function invokeWithTimeout(command, args = {}, timeoutMs = 30000) {
+    return Promise.race([
+        invoke(command, args),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs / 1000} seconds`)), timeoutMs)
+        )
+    ]);
+}
+
 let inputDirPath = '';
 let outputDirPath = '';
 let outputDirFromStack = '';
@@ -31,14 +41,16 @@ const maximizedImageOverlay = document.getElementById('maximizedImageOverlay');
 const maximizedImage = document.getElementById('maximizedImage');
 
 // Window position persistence
-function saveWindowPosition() {
+async function saveWindowPosition() {
     const window = getCurrentWindow();
 
-    Promise.all([
-        window.outerPosition(),
-        window.outerSize(),
-        currentMonitor()
-    ]).then(([position, size, monitor]) => {
+    try {
+        const [position, size, monitor] = await Promise.all([
+            window.outerPosition(),
+            window.outerSize(),
+            currentMonitor()
+        ]);
+
         const windowState = {
             x: position.x,
             y: position.y,
@@ -48,9 +60,9 @@ function saveWindowPosition() {
             timestamp: Date.now()
         };
         localStorage.setItem('windowState', JSON.stringify(windowState));
-    }).catch(error => {
+    } catch (error) {
         console.error('Failed to save window position:', error);
-    });
+    }
 }
 
 async function restoreWindowPosition() {
@@ -502,7 +514,7 @@ async function browseInputDirectory() {
             inputValidationEl.textContent = 'Validating...';
             inputValidationEl.className = 'validation-message';
 
-            const result = await invoke('validate_directory', { path: selected });
+            const result = await invokeWithTimeout('validate_directory', { path: selected }, 30000);
 
             if (result.valid) {
                 const formatText = result.detected_formats && result.detected_formats.length > 0
@@ -535,7 +547,7 @@ async function browseInputDirectory() {
 async function loadFileList(dirPath) {
     try {
         fileListTitleEl.textContent = 'Loading files...';
-        const files = await invoke('get_file_list', { path: dirPath });
+        const files = await invokeWithTimeout('get_file_list', { path: dirPath }, 30000);
         allFiles = files;
         updateFileSelection();
     } catch (error) {
@@ -1290,7 +1302,14 @@ async function importRecipe() {
         });
 
         // Parse YAML
-        const recipe = jsyaml.load(yamlContent);
+        let recipe;
+        try {
+            recipe = jsyaml.load(yamlContent);
+        } catch (error) {
+            console.error('Error parsing recipe YAML:', error);
+            alert('Failed to parse recipe file: Invalid YAML format');
+            return;
+        }
 
         if (!recipe || !recipe.settings) {
             alert('Invalid recipe file format');
@@ -1516,13 +1535,20 @@ async function updatePreviewContent(recipeId) {
         } else if (recipeId.startsWith('user:')) {
             // Handle user recipe
             const userId = recipeId.substring(5); // Remove 'user:' prefix
-            const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
-            const recipe = jsyaml.load(yamlContent);
+            try {
+                const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
+                const recipe = jsyaml.load(yamlContent);
 
-            recipeName = recipe.name || 'Unnamed Recipe';
-            recipeDescription = recipe.description || 'No description provided.';
-            settings = recipe.settings || {};
-            isUserRecipe = true;
+                recipeName = recipe.name || 'Unnamed Recipe';
+                recipeDescription = recipe.description || 'No description provided.';
+                settings = recipe.settings || {};
+                isUserRecipe = true;
+            } catch (error) {
+                console.error('Error loading user recipe:', error);
+                alert('Failed to load recipe: ' + error);
+                closeRecipePreview();
+                return;
+            }
         } else {
             throw new Error('Invalid recipe ID format');
         }
@@ -1608,7 +1634,12 @@ async function loadFromPreview() {
             // Handle user recipe
             const userId = currentPreviewRecipeId.substring(5); // Remove 'user:' prefix
             const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
-            const recipe = jsyaml.load(yamlContent);
+            let recipe;
+            try {
+                recipe = jsyaml.load(yamlContent);
+            } catch (yamlError) {
+                throw new Error('Invalid YAML format in recipe file: ' + yamlError.message);
+            }
             settings = recipe.settings || {};
         } else {
             throw new Error('Invalid recipe ID format');

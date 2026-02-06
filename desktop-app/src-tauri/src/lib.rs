@@ -10,6 +10,26 @@ use tauri::{Emitter, Manager};
 static STACKING_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<u32>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
+/// Validate recipe ID to prevent path traversal attacks.
+/// Recipe IDs must not contain path separators or parent directory references.
+fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
+    if recipe_id.is_empty() {
+        return Err("Recipe ID cannot be empty".to_string());
+    }
+
+    // Check for path separators and parent directory references
+    if recipe_id.contains('/') || recipe_id.contains('\\') || recipe_id.contains("..") {
+        return Err(format!("Invalid recipe ID '{}': cannot contain path separators or '..'", recipe_id));
+    }
+
+    // Check for null bytes
+    if recipe_id.contains('\0') {
+        return Err("Invalid recipe ID: cannot contain null bytes".to_string());
+    }
+
+    Ok(())
+}
+
 /// Get the Python interpreter path.
 /// In development, uses the system Python.
 /// In production, this won't be used as we'll have the bundled binary.
@@ -364,6 +384,9 @@ fn list_user_recipes(app: tauri::AppHandle) -> Result<Vec<UserRecipeInfo>, Strin
 
 #[tauri::command]
 fn load_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<String, String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
     let config_dir = app.path().app_config_dir()
         .map_err(|e| format!("Failed to get config directory: {}", e))?;
 
@@ -379,6 +402,9 @@ fn load_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<String, 
 
 #[tauri::command]
 fn save_user_recipe(app: tauri::AppHandle, recipe_id: String, content: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
     let config_dir = app.path().app_config_dir()
         .map_err(|e| format!("Failed to get config directory: {}", e))?;
 
@@ -398,6 +424,9 @@ fn save_user_recipe(app: tauri::AppHandle, recipe_id: String, content: String) -
 
 #[tauri::command]
 fn delete_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
     let config_dir = app.path().app_config_dir()
         .map_err(|e| format!("Failed to get config directory: {}", e))?;
 
@@ -413,6 +442,9 @@ fn delete_user_recipe(app: tauri::AppHandle, recipe_id: String) -> Result<(), St
 
 #[tauri::command]
 fn export_user_recipe(app: tauri::AppHandle, recipe_id: String, export_path: String) -> Result<(), String> {
+    // Validate recipe ID to prevent path traversal
+    validate_recipe_id(&recipe_id)?;
+
     let config_dir = app.path().app_config_dir()
         .map_err(|e| format!("Failed to get config directory: {}", e))?;
 
