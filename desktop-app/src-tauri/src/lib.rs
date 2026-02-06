@@ -31,10 +31,74 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 }
 
 /// Get the Python interpreter path.
-/// In development, uses the hardcoded pyenv Python path.
+/// Searches for Python in multiple locations with priority order.
 /// In production, this won't be used as we'll have the bundled binary.
 fn get_python_path() -> String {
-    "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
+    // 1. Check environment variable (explicit override)
+    if let Ok(path) = std::env::var("IMGSTAX_PYTHON_PATH") {
+        if Path::new(&path).exists() {
+            return path;
+        } else {
+            eprintln!("Warning: IMGSTAX_PYTHON_PATH is set but path doesn't exist: {}", path);
+        }
+    }
+
+    // 2. Check common locations first (prioritize user-installed Python over system Python)
+    // This is more reliable than 'which' in subprocess environments
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
+    let common_paths = vec![
+        format!("{}/.pyenv/shims/python3", home),  // Check pyenv first
+        "/opt/homebrew/bin/python3".to_string(),   // Then Homebrew
+        "/usr/local/bin/python3".to_string(),       // Then /usr/local
+        "/usr/bin/python3".to_string(),             // System Python last
+    ];
+
+    for path in &common_paths {
+        if Path::new(path).exists() {
+            return path.clone();
+        }
+    }
+
+    // 3. Try to find python3 in PATH as last resort
+    if let Ok(output) = Command::new("which").arg("python3").output() {
+        if output.status.success() {
+            if let Ok(path) = String::from_utf8(output.stdout) {
+                let path = path.trim().to_string();
+                if !path.is_empty() && Path::new(&path).exists() {
+                    return path;
+                }
+            }
+        }
+    }
+
+    // No Python found - provide helpful error message
+    panic!(
+        "\n\n\
+        ╔════════════════════════════════════════════════════════════════╗\n\
+        ║  ERROR: Python 3 interpreter not found                        ║\n\
+        ╚════════════════════════════════════════════════════════════════╝\n\
+        \n\
+        The imgstax desktop app requires Python 3 with imgstax installed\n\
+        for development mode.\n\
+        \n\
+        Solutions:\n\
+        \n\
+        1. Set the IMGSTAX_PYTHON_PATH environment variable:\n\
+           export IMGSTAX_PYTHON_PATH=/path/to/your/python3\n\
+        \n\
+        2. Ensure python3 is in your PATH:\n\
+           which python3  # Should return a valid path\n\
+        \n\
+        3. Install Python 3 in a standard location:\n\
+           - macOS: brew install python3\n\
+           - Linux: apt install python3 (or equivalent)\n\
+        \n\
+        After installing Python, make sure imgstax is installed:\n\
+           pip install -e .\n\
+        \n\
+        For more information, see the README.md\n\
+        \n"
+    );
 }
 
 /// Get the path to the imgstax executable.
