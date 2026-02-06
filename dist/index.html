@@ -164,7 +164,10 @@
                     </div>
                 </div>
                 <div class="file-preview-section">
-                    <div class="preview-header">Image Preview</div>
+                    <div class="preview-header">
+                        Image Preview
+                        <div class="preview-filename" id="previewFilename"></div>
+                    </div>
                     <div class="preview-content" id="previewContent">
                         <div class="preview-empty">Click an image to preview</div>
                     </div>
@@ -181,7 +184,10 @@
             <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
         </div>
         <div id="progressText">Initializing...</div>
-        <button id="openOutputButton" style="display: none; width: 100%;">Open Output Folder</button>
+        <div style="display: flex; gap: 10px;">
+            <button id="cancelStackingButton" class="secondary" style="display: none; flex: 1;">Cancel</button>
+            <button id="openOutputButton" style="display: none; flex: 1;">Open Output Folder</button>
+        </div>
     </div>
 
     <div id="preferencesDialog" style="display: none;">
@@ -447,6 +453,14 @@
             <button id="loadFromPreview" class="primary" style="display: none;">Load Recipe</button>
             <button id="editFromPreview" class="secondary" style="display: none;">Edit Recipe</button>
             <button id="closePreview" class="secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- Maximized Image View -->
+    <div id="maximizedImageOverlay" class="maximized-overlay" style="display: none;">
+        <div class="maximized-container">
+            <img id="maximizedImage" class="maximized-image" alt="Maximized preview">
+            <div class="maximized-hint">Press ESC to close</div>
         </div>
     </div>
 

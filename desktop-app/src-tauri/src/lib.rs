@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::fs;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
+
+// Global storage for the stacking process handle
+static STACKING_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<u32>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
 /// Get the Python interpreter path.
 /// In development, uses the system Python.
@@ -437,6 +442,38 @@ fn import_user_recipe_from_file(import_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn cancel_stacking() -> Result<(), String> {
+    let mut process_lock = STACKING_PROCESS.lock()
+        .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+
+    if let Some(pid) = *process_lock {
+        #[cfg(unix)]
+        {
+            // On Unix systems (macOS, Linux), use kill command
+            use std::process::Command;
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .output();
+        }
+
+        #[cfg(windows)]
+        {
+            // On Windows, use taskkill command
+            use std::process::Command;
+            let _ = Command::new("taskkill")
+                .args(&["/PID", &pid.to_string(), "/F"])
+                .output();
+        }
+
+        *process_lock = None;
+        Ok(())
+    } else {
+        Err("No stacking process is currently running".to_string())
+    }
+}
+
+#[tauri::command]
 async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<StackResult, String> {
     // Construct absolute output path
     let repo_root = env!("CARGO_MANIFEST_DIR").to_string() + "/../..";
@@ -514,6 +551,14 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         .spawn()
         .map_err(|e| format!("Failed to execute stacking: {}", e))?;
 
+    // Store the process ID for potential cancellation
+    let pid = child.id();
+    {
+        let mut process_lock = STACKING_PROCESS.lock()
+            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+        *process_lock = Some(pid);
+    }
+
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let reader = BufReader::new(stdout);
 
@@ -527,11 +572,18 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
 
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
 
+    // Clear the process ID from storage since it's done
+    {
+        let mut process_lock = STACKING_PROCESS.lock()
+            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+        *process_lock = None;
+    }
+
     if !status.success() {
         return Ok(StackResult {
             success: false,
             output_dir: String::new(),
-            error: Some("Stacking failed".to_string()),
+            error: Some("Stacking failed or was cancelled".to_string()),
         });
     }
 
@@ -570,6 +622,7 @@ pub fn run() {
         export_user_recipe,
         import_user_recipe_from_file,
         start_stacking,
+        cancel_stacking,
         open_folder
     ])
     .run(tauri::generate_context!())

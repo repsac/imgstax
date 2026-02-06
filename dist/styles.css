@@ -353,6 +353,21 @@ body {
     font-weight: 600;
     color: var(--text-secondary);
     text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.preview-filename {
+    font-size: 11px;
+    font-weight: 400;
+    color: #555;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    text-align: right;
 }
 
 .preview-content {
@@ -376,6 +391,70 @@ body {
     object-fit: contain;
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+}
+
+.preview-content {
+    position: relative;
+}
+
+.maximize-button {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 10;
+    transition: background 0.2s;
+}
+
+.maximize-button:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.maximized-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.maximized-container {
+    position: relative;
+    max-width: 95%;
+    max-height: 95%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.maximized-image {
+    max-width: 100%;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.maximized-hint {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    margin-top: 15px;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
 }
 
 .form-group {
