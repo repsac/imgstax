@@ -10,11 +10,12 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "imgstax - Image Stacking Tool",
+        "title": "imgstax - Sequential Image Stacking",
         "width": 1200,
-        "height": 850,
+        "height": 800,
         "resizable": true,
         "fullscreen": false,
+        "center": true,
         "devtools": true
       }
     ],

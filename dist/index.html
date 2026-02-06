@@ -3,14 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>imgstax - Image Stacking Tool</title>
+    <title>imgstax - Sequential Image Stacking</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="header">
-        <h1>imgstax</h1>
-        <div class="subtitle">Image Stacking Tool</div>
-        <div class="status" id="status-bar">✓ Tauri loaded</div>
+        <div class="header-buttons">
+            <button class="preferences-btn" id="viewQueueBtn" title="View Queue">📋</button>
+            <button class="preferences-btn" id="preferencesBtn" title="Preferences">⚙️</button>
+        </div>
+        <div class="header-content">
+            <img src="assets/logo_imgstax.png" alt="imgstax" class="header-logo">
+            <div class="header-right">
+                <div class="status" id="status-bar">✓ Tauri loaded</div>
+                <div class="subtitle">Sequential Image Stacking for Animations</div>
+            </div>
+        </div>
     </div>
 
     <div class="container">
@@ -34,11 +42,25 @@
             </div>
 
             <div class="form-group">
+                <label for="recipe">Recipe (Optional)</label>
+                <div class="recipe-input-group">
+                    <select id="recipe">
+                        <option value="">Custom settings...</option>
+                        <option value="stars">Star Trails</option>
+                        <option value="murmurations">Bird Murmurations</option>
+                        <option value="traffic">Traffic Light Trails</option>
+                        <option value="timelapse">Time-Lapse</option>
+                        <option value="fireworks">Fireworks</option>
+                        <option value="noise-reduction">Noise Reduction</option>
+                    </select>
+                    <button class="secondary recipe-edit-btn" id="editRecipeBtn" style="display: none;">Edit</button>
+                </div>
+            </div>
+
+            <div class="form-group">
                 <label for="prefix">Output Prefix</label>
                 <input type="text" id="prefix" value="stacked-">
             </div>
-
-            <div class="section-title">Stacking & Format Options</div>
 
             <div class="form-group">
                 <label for="stacking">Stacking Method</label>
@@ -132,7 +154,13 @@
                 </div>
             </div>
 
-                <button id="startButton" disabled>Start Stacking</button>
+                <div class="button-group">
+                    <button id="startButton" class="primary" disabled>Start Stacking</button>
+                    <button id="addToQueueBtn" class="secondary" disabled>Add to Queue</button>
+                    <button id="openQueueBtn" class="secondary" disabled>Open Queue</button>
+                    <button id="updateQueueBtn" class="primary" style="display: none;">Update Queue</button>
+                    <button id="cancelEditBtn" class="secondary" style="display: none;">Cancel Editing</button>
+                </div>
             </div>
 
             <div class="file-browser-panel" id="fileBrowserPanel">
@@ -145,7 +173,10 @@
                     </div>
                 </div>
                 <div class="file-preview-section">
-                    <div class="preview-header">Image Preview</div>
+                    <div class="preview-header">
+                        Image Preview
+                        <div class="preview-filename" id="previewFilename"></div>
+                    </div>
                     <div class="preview-content" id="previewContent">
                         <div class="preview-empty">Click an image to preview</div>
                     </div>
@@ -155,15 +186,333 @@
     </div>
 
     <div class="overlay" id="overlay"></div>
+
     <div id="progressDialog">
         <h2>Stacking Images</h2>
         <div class="progress-bar">
             <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
         </div>
         <div id="progressText">Initializing...</div>
-        <button id="openOutputButton" style="display: none; width: 100%;">Open Output Folder</button>
+        <div style="display: flex; gap: 10px;">
+            <button id="cancelStackingButton" class="secondary" style="display: none; flex: 1;">Cancel</button>
+            <button id="openOutputButton" style="display: none; flex: 1;">Open Output Folder</button>
+        </div>
     </div>
 
+    <div id="preferencesDialog" style="display: none;">
+        <h2>Preferences</h2>
+
+        <div class="preferences-section">
+            <h3>Default Values</h3>
+
+            <div class="pref-group">
+                <label for="prefRecipe">Load from Recipe (Template)</label>
+                <select id="prefRecipe">
+                    <option value="">-- Select a recipe --</option>
+                    <option value="stars">Star Trails</option>
+                    <option value="murmurations">Bird Murmurations</option>
+                    <option value="traffic">Traffic Light Trails</option>
+                    <option value="timelapse">Time-Lapse</option>
+                    <option value="fireworks">Fireworks</option>
+                    <option value="noise-reduction">Noise Reduction</option>
+                </select>
+            </div>
+
+            <div class="pref-group">
+                <label for="prefPrefix">Output Prefix</label>
+                <input type="text" id="prefPrefix" value="stacked-">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefStacking">Stacking Method</label>
+                <select id="prefStacking">
+                    <option value="maximum">Maximum (brightest)</option>
+                    <option value="minimum">Minimum (darkest)</option>
+                    <option value="mean">Mean (average)</option>
+                    <option value="median">Median</option>
+                </select>
+            </div>
+
+            <div class="pref-group">
+                <label for="prefQuality">JPEG Quality</label>
+                <input type="number" id="prefQuality" value="100" min="1" max="100">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefPngCompress">PNG Compression Level</label>
+                <input type="number" id="prefPngCompress" value="6" min="0" max="9">
+            </div>
+
+            <div class="pref-group">
+                <label for="prefTiffCompression">TIFF Compression</label>
+                <select id="prefTiffCompression">
+                    <option value="none">None</option>
+                    <option value="lzw">LZW</option>
+                    <option value="deflate" selected>Deflate (default)</option>
+                    <option value="jpeg">JPEG</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="preferences-section">
+            <h3>Appearance</h3>
+
+            <div class="pref-group">
+                <label for="prefTheme">Theme</label>
+                <select id="prefTheme">
+                    <optgroup label="Basic Themes">
+                        <option value="vibrant">Vibrant (default)</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </optgroup>
+                    <optgroup label="Low Contrast">
+                        <option value="low-contrast-light">Low Contrast Light</option>
+                        <option value="low-contrast-dark">Low Contrast Dark</option>
+                    </optgroup>
+                    <optgroup label="Nature Themes">
+                        <option value="desert">Desert</option>
+                        <option value="forest">Forest</option>
+                        <option value="beach">Beach</option>
+                        <option value="winter">Winter</option>
+                    </optgroup>
+                    <optgroup label="Location Themes">
+                        <option value="urban">Urban</option>
+                        <option value="utah">Utah</option>
+                        <option value="yosemite">Yosemite</option>
+                    </optgroup>
+                </select>
+            </div>
+        </div>
+
+        <div class="preferences-actions">
+            <button id="savePreferences" class="primary">Save</button>
+            <button id="cancelPreferences" class="secondary">Cancel</button>
+            <button id="resetPreferences" class="secondary">Reset to Defaults</button>
+        </div>
+    </div>
+
+    <div id="recipeEditorDialog" style="display: none;">
+        <h2 id="recipeEditorTitle">New Recipe</h2>
+
+        <div class="recipe-editor-section">
+            <div class="pref-group">
+                <label for="recipeName">Recipe Name</label>
+                <input type="text" id="recipeName" placeholder="My Custom Recipe">
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeDescription">Description</label>
+                <textarea id="recipeDescription" rows="2" placeholder="What this recipe is optimized for"></textarea>
+            </div>
+        </div>
+
+        <div class="recipe-editor-section">
+            <h3>Stacking Settings</h3>
+
+            <div class="pref-group">
+                <label for="recipeStacking">Stacking Method</label>
+                <select id="recipeStacking">
+                    <option value="maximum">Maximum (brightest)</option>
+                    <option value="minimum">Minimum (darkest)</option>
+                    <option value="mean">Mean (average)</option>
+                    <option value="median">Median</option>
+                </select>
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeQuality">JPEG Quality (1-100)</label>
+                <input type="number" id="recipeQuality" value="95" min="1" max="100">
+            </div>
+
+            <div class="pref-group">
+                <label for="recipePngCompress">PNG Compression (0-9)</label>
+                <input type="number" id="recipePngCompress" value="6" min="0" max="9">
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeTiffCompression">TIFF Compression</label>
+                <select id="recipeTiffCompression">
+                    <option value="none">None</option>
+                    <option value="lzw">LZW</option>
+                    <option value="deflate" selected>Deflate (default)</option>
+                    <option value="jpeg">JPEG</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="recipe-editor-section">
+            <h3>Frame & Trail Settings</h3>
+
+            <div class="pref-group">
+                <label for="recipeTrailLength">Trail Length (0 = all frames)</label>
+                <input type="number" id="recipeTrailLength" value="0" min="0">
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeFrameInterval">Frame Interval (process every nth frame)</label>
+                <input type="number" id="recipeFrameInterval" value="1" min="1">
+            </div>
+
+            <div class="pref-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="recipeTrailGradient">
+                    <label for="recipeTrailGradient">Enable Trail Gradient</label>
+                </div>
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeGradientDecay">Gradient Decay (0.0-1.0)</label>
+                <input type="number" id="recipeGradientDecay" value="0.85" min="0" max="1" step="0.05">
+            </div>
+
+            <div class="pref-group">
+                <label for="recipeGradientPlateau">Gradient Plateau (frames)</label>
+                <input type="number" id="recipeGradientPlateau" value="0" min="0">
+            </div>
+
+            <div class="pref-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="recipeFadeOut">
+                    <label for="recipeFadeOut">Fade Out</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="recipe-editor-actions">
+            <button id="saveRecipe" class="primary">Save Recipe</button>
+            <button id="exportRecipe" class="secondary" style="display: none;">Export...</button>
+            <button id="duplicateRecipe" class="secondary" style="display: none;">Duplicate</button>
+            <button id="deleteRecipe" class="secondary" style="display: none;">Delete Recipe</button>
+            <button id="cancelRecipeEditor" class="secondary">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Recipe Preview Dialog -->
+    <div id="recipePreviewDialog" style="display: none;">
+        <h2>Recipe Preview</h2>
+
+        <div class="recipe-preview-section">
+            <label for="recipeSearchInput" style="display: none;">Search Recipes</label>
+            <input type="text" id="recipeSearchInput" placeholder="Type to filter recipes..." style="display: none;">
+
+            <label for="previewRecipeSelector">Select Recipe</label>
+            <select id="previewRecipeSelector" style="margin-bottom: 20px;">
+                <option value="">Choose a recipe...</option>
+            </select>
+        </div>
+
+        <div class="recipe-preview-section" id="previewDetailsSection" style="display: none;">
+            <h3 id="previewName" class="preview-recipe-name"></h3>
+            <p id="previewDescription" class="preview-recipe-description"></p>
+        </div>
+
+        <div class="recipe-preview-section">
+            <h3>Stacking Settings</h3>
+            <div class="preview-grid">
+                <div class="preview-item">
+                    <span class="preview-label">Stacking Method:</span>
+                    <span id="previewStacking" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">JPEG Quality:</span>
+                    <span id="previewQuality" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">PNG Compression:</span>
+                    <span id="previewPngCompress" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">TIFF Compression:</span>
+                    <span id="previewTiffCompression" class="preview-value"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="recipe-preview-section">
+            <h3>Frame & Trail Settings</h3>
+            <div class="preview-grid">
+                <div class="preview-item">
+                    <span class="preview-label">Trail Length:</span>
+                    <span id="previewTrailLength" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">Frame Interval:</span>
+                    <span id="previewFrameInterval" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">Trail Gradient:</span>
+                    <span id="previewTrailGradient" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">Gradient Decay:</span>
+                    <span id="previewGradientDecay" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">Gradient Plateau:</span>
+                    <span id="previewGradientPlateau" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">Fade Out:</span>
+                    <span id="previewFadeOut" class="preview-value"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="recipe-editor-actions">
+            <button id="loadFromPreview" class="primary" style="display: none;">Load Recipe</button>
+            <button id="editFromPreview" class="secondary" style="display: none;">Edit Recipe</button>
+            <button id="closePreview" class="secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- Queue Dialog -->
+    <div id="queueDialog" class="dialog-overlay hidden">
+        <div class="dialog-content queue-dialog">
+            <div class="dialog-header">
+                <h2>Stacking Queue</h2>
+                <button class="close-button" onclick="closeQueueDialog()">×</button>
+            </div>
+
+            <div class="queue-list-container">
+                <div id="emptyQueueMessage" class="empty-message">
+                    No jobs in queue. Add a stacking job to get started.
+                </div>
+                <div id="queueList" class="queue-list"></div>
+            </div>
+
+            <div class="dialog-actions">
+                <button id="clearCompletedBtn" class="secondary">Clear Completed</button>
+                <button id="startBatchBtn" class="primary" disabled>Start Batch Processing</button>
+                <button onclick="closeQueueDialog()" class="secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maximized Image View -->
+    <div id="maximizedImageOverlay" class="maximized-overlay" style="display: none;">
+        <div class="maximized-container">
+            <img id="maximizedImage" class="maximized-image" alt="Maximized preview">
+            <div class="maximized-hint">Press ESC to close</div>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Dialog -->
+    <div id="customConfirmDialog" class="dialog-overlay hidden" style="z-index: 10000;">
+        <div class="dialog-content" style="max-width: 400px;">
+            <div class="dialog-header">
+                <h2 id="customConfirmTitle">Confirm</h2>
+            </div>
+            <div style="padding: 20px;">
+                <p id="customConfirmMessage"></p>
+            </div>
+            <div class="dialog-actions">
+                <button id="customConfirmOk" class="primary">OK</button>
+                <button id="customConfirmCancel" class="secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     <script src="main.js"></script>
 </body>
 </html>
