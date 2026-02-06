@@ -73,11 +73,28 @@ async function restoreWindowPosition() {
         }
 
         const state = JSON.parse(savedState);
+
+        // Validate state has valid numbers
+        if (!state.width || !state.height || !state.x || !state.y ||
+            typeof state.width !== 'number' || typeof state.height !== 'number' ||
+            typeof state.x !== 'number' || typeof state.y !== 'number') {
+            console.warn('Invalid saved window state, clearing and using defaults');
+            localStorage.removeItem('windowState');
+            return false;
+        }
+
+        // Check if we're on the same monitor
+        const monitor = await currentMonitor();
+        if (state.monitorName && monitor?.name !== state.monitorName) {
+            console.log(`Monitor changed from '${state.monitorName}' to '${monitor?.name}', using default sizing`);
+            return false; // Different monitor, use default sizing
+        }
+
         const window = getCurrentWindow();
 
-        // Restore position and size
-        await window.setSize({ width: state.width, height: state.height });
-        await window.setPosition({ x: state.x, y: state.y });
+        // Restore position and size using Physical coordinates
+        await window.setSize({ type: 'Physical', width: state.width, height: state.height });
+        await window.setPosition({ type: 'Physical', x: state.x, y: state.y });
 
         return true; // Successfully restored
     } catch (error) {
@@ -187,12 +204,12 @@ function collectFormConfig() {
     return {
         inputDir: document.getElementById('inputDir').value.trim(),
         outputDir: document.getElementById('outputDir').value.trim(),
-        recipe: document.getElementById('recipeSelect').value,
+        recipe: document.getElementById('recipe').value,
         quality: parseInt(document.getElementById('quality').value),
         pngCompressLevel: parseInt(document.getElementById('pngCompressLevel').value),
         tiffCompression: document.getElementById('tiffCompression').value,
-        stackingMode: document.getElementById('stackingMode').value,
-        dryRun: document.getElementById('dryRun').checked,
+        stackingMode: document.getElementById('stacking').value,
+        dryRun: false,
         startFrame: parseInt(document.getElementById('startFrame').value) || null,
         endFrame: parseInt(document.getElementById('endFrame').value) || null,
         trailLength: parseInt(document.getElementById('trailLength').value),
@@ -565,7 +582,7 @@ async function init() {
                 const targetWidth = Math.floor(targetHeight * 1.5);
 
                 const window = getCurrentWindow();
-                await window.setSize({ width: targetWidth, height: targetHeight });
+                await window.setSize({ type: 'Physical', width: targetWidth, height: targetHeight });
                 await window.center();
             }
         } catch (error) {
