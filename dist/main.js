@@ -13,6 +13,20 @@ async function invokeWithTimeout(command, args = {}, timeoutMs = 30000) {
     ]);
 }
 
+// HTML escape utility to prevent XSS attacks
+// Escapes special HTML characters in user-provided strings
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') {
+        return unsafe;
+    }
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 let inputDirPath = '';
 let outputDirPath = '';
 let outputDirFromStack = '';
@@ -202,17 +216,17 @@ function saveQueue() {
 // Update queue badge count and button state
 function updateQueueBadge() {
     const pendingCount = stackingQueue.filter(item => item.status === 'pending').length;
+    const totalCount = stackingQueue.length;
 
-    // Update "Open Queue" button
+    // Update "Open Queue" button - always enabled so users can view completed stacks
     const openQueueBtn = document.getElementById('openQueueBtn');
     if (openQueueBtn) {
-        if (pendingCount > 0) {
-            openQueueBtn.textContent = `Open Queue (${pendingCount})`;
-            openQueueBtn.disabled = false;
+        if (totalCount > 0) {
+            openQueueBtn.textContent = `Open Queue (${totalCount})`;
         } else {
             openQueueBtn.textContent = 'Open Queue';
-            openQueueBtn.disabled = true;
         }
+        openQueueBtn.disabled = false; // Always enabled
     }
 }
 
@@ -242,7 +256,8 @@ function collectFormConfig() {
         fade_out: document.getElementById('fadeOut').checked,
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
-        tiff_compression: document.getElementById('tiffCompression').value
+        tiff_compression: document.getElementById('tiffCompression').value,
+        export_recipe: document.getElementById('exportRecipe').checked
     };
 }
 
@@ -372,6 +387,25 @@ function moveQueueItemDown(id) {
         saveQueue();
         renderQueueList();
     }
+}
+
+// Re-queue a completed/failed/cancelled item
+function requeueItem(id) {
+    const item = stackingQueue.find(i => i.id === id);
+    if (!item) return;
+
+    // Only allow re-queuing completed, failed, or cancelled items
+    if (item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled') {
+        alert('Can only re-queue completed, failed, or cancelled jobs');
+        return;
+    }
+
+    // Reset status to pending and clear error
+    item.status = 'pending';
+    item.error = null;
+
+    saveQueue();
+    renderQueueList();
 }
 
 // Clear completed jobs
@@ -521,30 +555,41 @@ function renderQueueList() {
         const inputDirName = item.config.input_path.split(/[\\/]/).pop() || item.config.input_path;
         const outputDirName = item.config.output_path.split(/[\\/]/).pop() || item.config.output_path;
 
+        // Escape all user-provided data to prevent XSS
+        const safeInputDir = escapeHtml(inputDirName);
+        const safeOutputDir = escapeHtml(outputDirName);
+        const safePrefix = escapeHtml(item.config.prefix);
+        const safeStacking = escapeHtml(item.config.stacking);
+        const safeError = item.error ? escapeHtml(item.error) : '';
+        const safeId = escapeHtml(item.id);
+
         return `
-            <div class="queue-item" data-id="${item.id}">
+            <div class="queue-item" data-id="${safeId}">
                 <div class="queue-item-status status-${item.status}">
                     <span class="status-icon"></span>
                 </div>
                 <div class="queue-item-details">
                     <div class="queue-item-primary">
-                        <strong>${inputDirName}</strong> → <strong>${outputDirName}</strong>
+                        <strong>${safeInputDir}</strong> → <strong>${safeOutputDir}</strong>
                     </div>
                     <div class="queue-item-secondary">
-                        Prefix: ${item.config.prefix} | Mode: ${item.config.stacking}
-                        ${item.error ? `<br><span style="color: #f44336;">Error: ${item.error}</span>` : ''}
+                        Prefix: ${safePrefix} | Mode: ${safeStacking}
+                        ${safeError ? `<br><span style="color: #f44336;">Error: ${safeError}</span>` : ''}
                     </div>
                 </div>
                 <div class="queue-item-actions">
                     ${item.status === 'pending' ? `
-                        <button class="icon-button edit-item" data-id="${item.id}" title="Edit">✎</button>
-                        <button class="icon-button move-up" data-id="${item.id}"
+                        <button class="icon-button edit-item" data-id="${safeId}" title="Edit">✎</button>
+                        <button class="icon-button move-up" data-id="${safeId}"
                                 ${index === 0 ? 'disabled' : ''} title="Move Up">↑</button>
-                        <button class="icon-button move-down" data-id="${item.id}"
+                        <button class="icon-button move-down" data-id="${safeId}"
                                 ${index === stackingQueue.length - 1 ? 'disabled' : ''} title="Move Down">↓</button>
                     ` : ''}
+                    ${(item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled') ? `
+                        <button class="icon-button requeue-item" data-id="${safeId}" title="Re-queue">↻</button>
+                    ` : ''}
                     ${item.status !== 'processing' ? `
-                        <button class="icon-button delete remove-item" data-id="${item.id}" title="Remove">×</button>
+                        <button class="icon-button delete remove-item" data-id="${safeId}" title="Remove">×</button>
                     ` : ''}
                 </div>
             </div>
@@ -585,6 +630,8 @@ function setupQueueEventDelegation() {
             moveQueueItemUp(id);
         } else if (button.classList.contains('move-down')) {
             moveQueueItemDown(id);
+        } else if (button.classList.contains('requeue-item')) {
+            requeueItem(id);
         } else if (button.classList.contains('remove-item')) {
             removeQueueItem(id);
         }
@@ -645,7 +692,7 @@ async function executeStackingJob(config) {
 
                 if (data.type === 'progress') {
                     // Track start time on first progress event
-                    if (startTime === null && data.current > 0) {
+                    if (startTime === null) {
                         startTime = Date.now();
                     }
 
@@ -656,7 +703,7 @@ async function executeStackingJob(config) {
                     let statusText = `Processing frame ${data.current} of ${data.total}...`;
 
                     // Calculate ETA if we have processed at least one frame
-                    if (startTime !== null && data.current > 0) {
+                    if (data.current > 0) {
                         const elapsed = (Date.now() - startTime) / 1000; // in seconds
                         const avgTimePerFrame = elapsed / data.current;
                         const framesRemaining = data.total - data.current;
@@ -1013,7 +1060,7 @@ async function init() {
         const data = event.payload;
         if (data.type === 'progress') {
             // Track start time on first progress event
-            if (regularStackingStartTime === null && data.current > 0) {
+            if (regularStackingStartTime === null) {
                 regularStackingStartTime = Date.now();
             }
 
@@ -1024,7 +1071,7 @@ async function init() {
             let statusText = `Processing frame ${data.current} of ${data.total}`;
 
             // Calculate ETA if we have processed at least one frame
-            if (regularStackingStartTime !== null && data.current > 0) {
+            if (data.current > 0) {
                 const elapsed = (Date.now() - regularStackingStartTime) / 1000; // in seconds
                 const avgTimePerFrame = elapsed / data.current;
                 const framesRemaining = data.total - data.current;
@@ -1311,7 +1358,7 @@ async function loadFileList(dirPath) {
     } catch (error) {
         console.error('Error loading file list:', error);
         fileListTitleEl.textContent = 'Error loading files';
-        fileListEl.innerHTML = `<div class="file-list-empty">Error: ${error}</div>`;
+        fileListEl.innerHTML = `<div class="file-list-empty">Error: ${escapeHtml(String(error))}</div>`;
     }
 }
 
@@ -1373,10 +1420,13 @@ function renderFileList() {
 
     fileListEl.innerHTML = allFiles.map(file => {
         const isSelected = selectedIndices.has(file.index);
+        // Escape user-provided file data to prevent XSS
+        const safePath = escapeHtml(file.path);
+        const safeFilename = escapeHtml(file.filename);
         return `
-            <div class="file-item ${isSelected ? 'selected' : 'unselected'}" data-index="${file.index}" data-path="${file.path}">
+            <div class="file-item ${isSelected ? 'selected' : 'unselected'}" data-index="${file.index}" data-path="${safePath}">
                 <span class="file-item-index">${file.index}</span>
-                <span class="file-item-name">${file.filename}</span>
+                <span class="file-item-name">${safeFilename}</span>
             </div>
         `;
     }).join('');
@@ -1402,8 +1452,11 @@ function previewImage(imagePath) {
         const imageUrl = convertFileSrc(imagePath);
         console.log('Converted image URL:', imageUrl);
 
+        // Escape URL for safe HTML insertion (defense in depth)
+        const safeImageUrl = escapeHtml(imageUrl);
+
         previewContentEl.innerHTML = `
-            <img src="${imageUrl}" class="preview-image" alt="Preview" onerror="console.error('Image failed to load:', '${imageUrl}'); this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
+            <img src="${safeImageUrl}" class="preview-image" alt="Preview" onerror="this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
             <button class="maximize-button" id="maximizeButton">🔍 Maximize</button>
         `;
 
@@ -1481,7 +1534,8 @@ async function startStacking() {
         fade_out: document.getElementById('fadeOut').checked,
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
-        tiff_compression: document.getElementById('tiffCompression').value
+        tiff_compression: document.getElementById('tiffCompression').value,
+        export_recipe: document.getElementById('exportRecipe').checked
     };
 
     // Show progress dialog
