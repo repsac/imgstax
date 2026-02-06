@@ -216,13 +216,12 @@ function saveQueue() {
 // Update queue badge count and button state
 function updateQueueBadge() {
     const pendingCount = stackingQueue.filter(item => item.status === 'pending').length;
-    const totalCount = stackingQueue.length;
 
     // Update "Open Queue" button - always enabled so users can view completed stacks
     const openQueueBtn = document.getElementById('openQueueBtn');
     if (openQueueBtn) {
-        if (totalCount > 0) {
-            openQueueBtn.textContent = `Open Queue (${totalCount})`;
+        if (pendingCount > 0) {
+            openQueueBtn.textContent = `Open Queue (${pendingCount})`;
         } else {
             openQueueBtn.textContent = 'Open Queue';
         }
