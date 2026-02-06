@@ -31,23 +31,10 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 }
 
 /// Get the Python interpreter path.
-/// In development, uses the system Python from PATH.
+/// In development, uses the hardcoded pyenv Python path.
 /// In production, this won't be used as we'll have the bundled binary.
 fn get_python_path() -> String {
-    // Try common Python command names in order of preference
-    for cmd in &["python3", "python"] {
-        if let Ok(output) = Command::new(cmd)
-            .arg("--version")
-            .output()
-        {
-            if output.status.success() {
-                return cmd.to_string();
-            }
-        }
-    }
-
-    // Fallback to python3 if lookup fails (will error if not found when used)
-    "python3".to_string()
+    "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
 }
 
 /// Get the path to the imgstax executable.
@@ -156,16 +143,19 @@ fn open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 fn get_recipes() -> Result<Vec<Recipe>, String> {
     // Call Python to get recipe list
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(r#"
+    let python_code = r#"
 import sys
 import json
 sys.path.insert(0, '../..')
 from imgstax.recipe_loader import get_recipe_details
 recipes = get_recipe_details()
 print(json.dumps(recipes))
-"#)
+"#;
+
+    // Call Python to get recipe list
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
 
@@ -207,9 +197,7 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
     // Escape the path properly for Python
     let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(format!(r#"
+    let python_code = format!(r#"
 import sys
 import os
 import io
@@ -236,7 +224,11 @@ for img in images:
 sys.stdout = real_stdout
 result = {{'count': len(images), 'formats': sorted(list(formats))}}
 print(json.dumps(result))
-"#, escaped_path))
+"#, escaped_path);
+
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
@@ -293,9 +285,7 @@ fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
     // Escape the path properly for Python
     let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(format!(r#"
+    let python_code = format!(r#"
 import sys
 import os
 import io
@@ -314,7 +304,11 @@ files = []
 for idx, img in enumerate(images):
     files.append({{"index": idx, "filename": img.name, "path": str(img)}})
 print(json.dumps(files))
-"#, escaped_path))
+"#, escaped_path);
+
+    let output = Command::new(get_python_path())
+        .arg("-c")
+        .arg(python_code)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
