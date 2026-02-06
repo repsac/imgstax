@@ -251,7 +251,7 @@ body {
 }
 
 .form-wrapper {
-    flex: 0 0 700px;
+    flex: 0 0 525px;
     padding: 40px;
     overflow-y: auto;
     height: 100%;
@@ -993,8 +993,8 @@ button.secondary:hover {
 
 .button-group button {
     flex: 1;
-    padding: 16px;
-    font-size: 16px;
+    padding: 12px;
+    font-size: 14px;
 }
 
 .button-group .primary {
@@ -1034,6 +1034,14 @@ button.secondary:hover {
 
 .dialog-overlay.hidden {
     display: none;
+}
+
+/* General dialog content */
+.dialog-content {
+    background: var(--bg-main);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 90vw;
 }
 
 /* Queue dialog content */

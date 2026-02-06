@@ -124,6 +124,7 @@ async function loadUserRecipeYaml(recipeId) {
 let stackingQueue = [];
 let isBatchProcessing = false;
 let currentBatchIndex = -1;
+let editingQueueItemId = null;
 
 // Load queue from localStorage
 function loadQueue() {
@@ -145,6 +146,31 @@ function loadQueue() {
                            typeof item.status === 'string' &&
                            item.config &&
                            typeof item.config === 'object';
+                });
+
+                // Migrate old property names to new format
+                stackingQueue = stackingQueue.map(item => {
+                    if (item.config.inputDir || item.config.outputDir) {
+                        // Old format - migrate to new
+                        item.config = {
+                            input_path: item.config.inputDir || item.config.input_path || '',
+                            output_path: item.config.outputDir || item.config.output_path || '',
+                            prefix: item.config.prefix || '',
+                            stacking: item.config.stackingMode || item.config.stacking || 'progressive',
+                            start_frame: item.config.startFrame || item.config.start_frame || null,
+                            end_frame: item.config.endFrame || item.config.end_frame || null,
+                            frame_interval: item.config.frameInterval || item.config.frame_interval || 1,
+                            trail_length: item.config.trailLength || item.config.trail_length || 10,
+                            trail_gradient: item.config.trailGradient !== undefined ? item.config.trailGradient : (item.config.trail_gradient || false),
+                            gradient_decay: item.config.gradientDecay || item.config.gradient_decay || 0.8,
+                            gradient_plateau: item.config.gradientPlateau || item.config.gradient_plateau || 3,
+                            fade_out: item.config.fadeOut !== undefined ? item.config.fadeOut : (item.config.fade_out || false),
+                            quality: item.config.quality || 95,
+                            png_compress_level: item.config.pngCompressLevel || item.config.png_compress_level || 6,
+                            tiff_compression: item.config.tiffCompression || item.config.tiff_compression || 'deflate'
+                        };
+                    }
+                    return item;
                 });
 
                 // Clear old completed/failed jobs (>24 hours)
@@ -199,44 +225,43 @@ function generateUUID() {
     });
 }
 
-// Helper to collect form configuration
+// Helper to collect form configuration for queue
 function collectFormConfig() {
     return {
-        inputDir: document.getElementById('inputDir').value.trim(),
-        outputDir: document.getElementById('outputDir').value.trim(),
-        recipe: document.getElementById('recipe').value,
+        input_path: inputDirPath,
+        output_path: outputDirPath,
+        prefix: document.getElementById('prefix').value,
+        stacking: document.getElementById('stacking').value,
+        start_frame: document.getElementById('startFrame').value ? parseInt(document.getElementById('startFrame').value) : null,
+        end_frame: document.getElementById('endFrame').value ? parseInt(document.getElementById('endFrame').value) : null,
+        frame_interval: parseInt(document.getElementById('frameInterval').value),
+        trail_length: parseInt(document.getElementById('trailLength').value),
+        trail_gradient: document.getElementById('trailGradient').checked,
+        gradient_decay: parseFloat(document.getElementById('gradientDecay').value),
+        gradient_plateau: parseInt(document.getElementById('gradientPlateau').value),
+        fade_out: document.getElementById('fadeOut').checked,
         quality: parseInt(document.getElementById('quality').value),
-        pngCompressLevel: parseInt(document.getElementById('pngCompressLevel').value),
-        tiffCompression: document.getElementById('tiffCompression').value,
-        stackingMode: document.getElementById('stacking').value,
-        dryRun: false,
-        startFrame: parseInt(document.getElementById('startFrame').value) || null,
-        endFrame: parseInt(document.getElementById('endFrame').value) || null,
-        trailLength: parseInt(document.getElementById('trailLength').value),
-        frameInterval: parseInt(document.getElementById('frameInterval').value),
-        trailGradient: document.getElementById('trailGradient').checked,
-        gradientDecay: parseFloat(document.getElementById('gradientDecay').value),
-        gradientPlateau: parseInt(document.getElementById('gradientPlateau').value)
+        png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
+        tiff_compression: document.getElementById('tiffCompression').value
     };
 }
 
 // Add job to queue
 async function addToQueue() {
     // Validate input directory first
-    const inputDir = document.getElementById('inputDir').value.trim();
-    if (!inputDir) {
+    if (!inputDirPath) {
         alert('Please select an input directory');
+        return;
+    }
+
+    // Validate output directory
+    if (!outputDirPath) {
+        alert('Please select an output directory');
         return;
     }
 
     // Collect current form configuration
     const config = collectFormConfig();
-
-    // Validate output directory is not empty
-    if (!config.outputDir) {
-        alert('Please select an output directory');
-        return;
-    }
 
     // Check queue size limit
     const pendingCount = stackingQueue.filter(i => i.status === 'pending').length;
@@ -248,7 +273,7 @@ async function addToQueue() {
 
     // Validate unique output directory
     const duplicate = stackingQueue.find(item =>
-        item.status === 'pending' && item.config.outputDir === config.outputDir
+        item.status === 'pending' && item.config.output_path === config.output_path
     );
 
     if (duplicate) {
@@ -269,15 +294,48 @@ async function addToQueue() {
     stackingQueue.push(queueItem);
     saveQueue();
 
-    // Clear only output directory field
+    // Clear only output directory field and path
     document.getElementById('outputDir').value = '';
+    outputDirPath = '';
 
     // Show confirmation
     alert(`Added to queue! ${stackingQueue.filter(i => i.status === 'pending').length} job(s) pending.`);
 }
 
+// Custom confirm dialog
+function customConfirm(message, title = 'Confirm') {
+    return new Promise((resolve) => {
+        const dialog = document.getElementById('customConfirmDialog');
+        const titleEl = document.getElementById('customConfirmTitle');
+        const messageEl = document.getElementById('customConfirmMessage');
+        const okBtn = document.getElementById('customConfirmOk');
+        const cancelBtn = document.getElementById('customConfirmCancel');
+
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        dialog.classList.remove('hidden');
+
+        const handleOk = () => {
+            dialog.classList.add('hidden');
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+            resolve(true);
+        };
+
+        const handleCancel = () => {
+            dialog.classList.add('hidden');
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+            resolve(false);
+        };
+
+        okBtn.addEventListener('click', handleOk);
+        cancelBtn.addEventListener('click', handleCancel);
+    });
+}
+
 // Remove job from queue
-function removeQueueItem(id) {
+async function removeQueueItem(id) {
     const item = stackingQueue.find(i => i.id === id);
     if (!item) return;
 
@@ -286,7 +344,8 @@ function removeQueueItem(id) {
         return;
     }
 
-    if (confirm('Remove this job from the queue?')) {
+    const confirmed = await customConfirm('Remove this job from the queue?', 'Remove Job');
+    if (confirmed) {
         stackingQueue = stackingQueue.filter(i => i.id !== id);
         saveQueue();
         renderQueueList();
@@ -316,7 +375,7 @@ function moveQueueItemDown(id) {
 }
 
 // Clear completed jobs
-function clearCompleted() {
+async function clearCompleted() {
     const completedCount = stackingQueue.filter(i =>
         i.status === 'completed' || i.status === 'failed' || i.status === 'cancelled'
     ).length;
@@ -326,7 +385,8 @@ function clearCompleted() {
         return;
     }
 
-    if (confirm(`Clear ${completedCount} completed job(s)?`)) {
+    const confirmed = await customConfirm(`Clear ${completedCount} completed job(s)?`, 'Clear Completed');
+    if (confirmed) {
         stackingQueue = stackingQueue.filter(i => i.status === 'pending' || i.status === 'processing');
         saveQueue();
         renderQueueList();
@@ -342,6 +402,102 @@ function openQueueDialog() {
 // Close queue dialog
 function closeQueueDialog() {
     document.getElementById('queueDialog').classList.add('hidden');
+}
+
+// Edit queue item
+function editQueueItem(id) {
+    const item = stackingQueue.find(i => i.id === id);
+    if (!item) return;
+
+    if (item.status !== 'pending') {
+        alert('Only pending jobs can be edited');
+        return;
+    }
+
+    // Set edit mode
+    editingQueueItemId = id;
+
+    // Load config into form
+    document.getElementById('inputDir').value = item.config.input_path.split(/[\\/]/).pop() || '';
+    inputDirPath = item.config.input_path;
+
+    document.getElementById('outputDir').value = item.config.output_path.split(/[\\/]/).pop() || '';
+    outputDirPath = item.config.output_path;
+
+    document.getElementById('prefix').value = item.config.prefix || '';
+    document.getElementById('stacking').value = item.config.stacking || 'progressive';
+    document.getElementById('startFrame').value = item.config.start_frame || '';
+    document.getElementById('endFrame').value = item.config.end_frame || '';
+    document.getElementById('frameInterval').value = item.config.frame_interval || 1;
+    document.getElementById('trailLength').value = item.config.trail_length || 10;
+    document.getElementById('trailGradient').checked = item.config.trail_gradient || false;
+    document.getElementById('gradientDecay').value = item.config.gradient_decay || 0.8;
+    document.getElementById('gradientPlateau').value = item.config.gradient_plateau || 3;
+    document.getElementById('fadeOut').checked = item.config.fade_out || false;
+    document.getElementById('quality').value = item.config.quality || 95;
+    document.getElementById('pngCompressLevel').value = item.config.png_compress_level || 6;
+    document.getElementById('tiffCompression').value = item.config.tiff_compression || 'deflate';
+
+    // Show/hide buttons
+    document.getElementById('startButton').style.display = 'none';
+    document.getElementById('addToQueueBtn').style.display = 'none';
+    document.getElementById('openQueueBtn').style.display = 'none';
+    document.getElementById('updateQueueBtn').style.display = 'block';
+    document.getElementById('cancelEditBtn').style.display = 'block';
+
+    // Close queue dialog
+    closeQueueDialog();
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Update queue item with edited values
+async function updateQueueItem() {
+    if (!editingQueueItemId) return;
+
+    const item = stackingQueue.find(i => i.id === editingQueueItemId);
+    if (!item) return;
+
+    // Validate
+    if (!inputDirPath) {
+        alert('Please select an input directory');
+        return;
+    }
+
+    if (!outputDirPath) {
+        alert('Please select an output directory');
+        return;
+    }
+
+    // Update item config
+    item.config = collectFormConfig();
+
+    // Save and exit edit mode
+    saveQueue();
+    cancelEditing();
+
+    // Show success message
+    alert('Queue item updated successfully!');
+
+    // Open queue dialog to show updated item
+    openQueueDialog();
+}
+
+// Cancel editing and restore UI
+function cancelEditing() {
+    editingQueueItemId = null;
+
+    // Show/hide buttons
+    document.getElementById('startButton').style.display = 'block';
+    document.getElementById('addToQueueBtn').style.display = 'block';
+    document.getElementById('openQueueBtn').style.display = 'block';
+    document.getElementById('updateQueueBtn').style.display = 'none';
+    document.getElementById('cancelEditBtn').style.display = 'none';
+
+    // Clear form
+    document.getElementById('outputDir').value = '';
+    outputDirPath = '';
 }
 
 // Render queue list
@@ -362,8 +518,8 @@ function renderQueueList() {
     emptyMessage.style.display = 'none';
 
     queueList.innerHTML = stackingQueue.map((item, index) => {
-        const inputDirName = item.config.inputDir.split(/[\\/]/).pop() || item.config.inputDir;
-        const outputDirName = item.config.outputDir.split(/[\\/]/).pop() || item.config.outputDir;
+        const inputDirName = item.config.input_path.split(/[\\/]/).pop() || item.config.input_path;
+        const outputDirName = item.config.output_path.split(/[\\/]/).pop() || item.config.output_path;
 
         return `
             <div class="queue-item" data-id="${item.id}">
@@ -375,19 +531,20 @@ function renderQueueList() {
                         <strong>${inputDirName}</strong> → <strong>${outputDirName}</strong>
                     </div>
                     <div class="queue-item-secondary">
-                        Recipe: ${item.config.recipe} | Mode: ${item.config.stackingMode}
+                        Prefix: ${item.config.prefix} | Mode: ${item.config.stacking}
                         ${item.error ? `<br><span style="color: #f44336;">Error: ${item.error}</span>` : ''}
                     </div>
                 </div>
                 <div class="queue-item-actions">
                     ${item.status === 'pending' ? `
-                        <button class="icon-button" onclick="moveQueueItemUp('${item.id}')"
+                        <button class="icon-button edit-item" data-id="${item.id}" title="Edit">✎</button>
+                        <button class="icon-button move-up" data-id="${item.id}"
                                 ${index === 0 ? 'disabled' : ''} title="Move Up">↑</button>
-                        <button class="icon-button" onclick="moveQueueItemDown('${item.id}')"
+                        <button class="icon-button move-down" data-id="${item.id}"
                                 ${index === stackingQueue.length - 1 ? 'disabled' : ''} title="Move Down">↓</button>
                     ` : ''}
                     ${item.status !== 'processing' ? `
-                        <button class="icon-button delete" onclick="removeQueueItem('${item.id}')" title="Remove">×</button>
+                        <button class="icon-button delete remove-item" data-id="${item.id}" title="Remove">×</button>
                     ` : ''}
                 </div>
             </div>
@@ -404,72 +561,111 @@ function renderQueueList() {
     clearCompletedBtn.disabled = !hasCompleted;
 }
 
+// Set up event delegation for queue list (call once on initialization)
+let queueListDelegationSetup = false;
+
+function setupQueueEventDelegation() {
+    if (queueListDelegationSetup) return;
+
+    const queueList = document.getElementById('queueList');
+    queueList.addEventListener('click', (e) => {
+        // Find the button that was clicked (handle clicks on button or its children)
+        const button = e.target.closest('.icon-button');
+        if (!button) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const id = button.dataset.id;
+        if (!id) return;
+
+        if (button.classList.contains('edit-item')) {
+            editQueueItem(id);
+        } else if (button.classList.contains('move-up')) {
+            moveQueueItemUp(id);
+        } else if (button.classList.contains('move-down')) {
+            moveQueueItemDown(id);
+        } else if (button.classList.contains('remove-item')) {
+            removeQueueItem(id);
+        }
+    });
+
+    queueListDelegationSetup = true;
+}
+
 // Execute single stacking job with progress dialog
 async function executeStackingJob(config) {
-    return new Promise((resolve) => {
-        // Show progress dialog (reuse existing one)
-        const progressDialog = document.getElementById('progressDialog');
-        const progressBar = progressDialog.querySelector('.progress-bar');
-        const progressText = progressDialog.querySelector('.progress-text');
-        const progressLog = progressDialog.querySelector('.progress-log');
-        const cancelBtn = document.getElementById('cancelStackingBtn');
-
-        progressDialog.classList.remove('hidden');
-        progressBar.style.width = '0%';
-        progressText.textContent = 'Starting...';
-        progressLog.innerHTML = '';
-
+    return new Promise(async (resolve) => {
+        let unlisten = null;
         let cancelled = false;
 
-        // Set up cancel handler
-        const cancelHandler = () => {
-            cancelled = true;
-            cancelCurrentStack(); // Call existing cancel function
-        };
+        try {
+            // Show progress dialog
+            overlay.style.display = 'block';
+            progressDialog.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressFill.textContent = '0%';
+            progressText.textContent = 'Initializing...';
+            cancelStackingButton.style.display = 'block';
+            openOutputButton.style.display = 'none';
 
-        cancelBtn.onclick = cancelHandler;
+            // Set up cancel handler
+            const cancelHandler = async () => {
+                cancelled = true;
+                try {
+                    await invoke('cancel_stacking');
+                } catch (error) {
+                    console.error('Cancel error:', error);
+                }
+            };
 
-        // Set up progress listener
-        const unlisten = listen('stacking-progress', (event) => {
-            const data = event.payload;
+            cancelStackingButton.onclick = cancelHandler;
 
-            if (data.type === 'progress') {
-                const percent = (data.current / data.total) * 100;
-                progressBar.style.width = `${percent}%`;
-                progressText.textContent = `Processing frame ${data.current} of ${data.total}`;
-            } else if (data.type === 'log') {
-                const logEntry = document.createElement('div');
-                logEntry.textContent = data.message;
-                progressLog.appendChild(logEntry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            } else if (data.type === 'complete') {
-                unlisten.then(fn => fn());
-                progressDialog.classList.add('hidden');
-                resolve(!cancelled);
-            } else if (data.type === 'error') {
-                unlisten.then(fn => fn());
-                progressDialog.classList.add('hidden');
+            // Set up progress listener
+            unlisten = await listen('stacking-progress', (event) => {
+                const data = event.payload;
+
+                if (data.type === 'progress') {
+                    const percent = Math.round((data.current / data.total) * 100);
+                    progressFill.style.width = `${percent}%`;
+                    progressFill.textContent = `${percent}%`;
+                    progressText.textContent = `Processing frame ${data.current} of ${data.total}...`;
+                }
+            });
+
+            // Start stacking
+            const result = await invoke('start_stacking', { config });
+
+            // Hide progress dialog
+            overlay.style.display = 'none';
+            progressDialog.style.display = 'none';
+            cancelStackingButton.style.display = 'none';
+
+            if (unlisten) unlisten();
+
+            if (cancelled) {
+                resolve('cancelled');
+            } else if (result.success) {
+                resolve(true);
+            } else {
                 resolve(false);
             }
-        });
-
-        // Start stacking via Rust backend
-        invoke('start_stacking', { config }).catch(error => {
+        } catch (error) {
             console.error('Stacking error:', error);
-            unlisten.then(fn => fn());
-            progressDialog.classList.add('hidden');
-            resolve(false);
-        });
 
-        // Check if cancelled during processing
-        const checkCancelled = setInterval(() => {
+            // Hide progress dialog
+            overlay.style.display = 'none';
+            progressDialog.style.display = 'none';
+            cancelStackingButton.style.display = 'none';
+
+            if (unlisten) unlisten();
+
             if (cancelled) {
-                clearInterval(checkCancelled);
-                unlisten.then(fn => fn());
-                progressDialog.classList.add('hidden');
                 resolve('cancelled');
+            } else {
+                resolve(false);
             }
-        }, 500);
+        }
     });
 }
 
@@ -491,10 +687,6 @@ async function startBatchProcessing() {
 
     if (pendingJobs.length === 0) {
         alert('No pending jobs to process');
-        return;
-    }
-
-    if (!confirm(`Start processing ${pendingJobs.length} job(s)?`)) {
         return;
     }
 
@@ -626,6 +818,9 @@ async function init() {
     // Load queue on startup
     loadQueue();
 
+    // Set up queue event delegation
+    setupQueueEventDelegation();
+
     // Set up event listeners
     browseInputBtn.addEventListener('click', browseInputDirectory);
     browseOutputBtn.addEventListener('click', browseOutputDirectory);
@@ -639,6 +834,8 @@ async function init() {
     document.getElementById('viewQueueBtn').addEventListener('click', openQueueDialog);
     document.getElementById('startBatchBtn').addEventListener('click', startBatchProcessing);
     document.getElementById('clearCompletedBtn').addEventListener('click', clearCompleted);
+    document.getElementById('updateQueueBtn').addEventListener('click', updateQueueItem);
+    document.getElementById('cancelEditBtn').addEventListener('click', cancelEditing);
 
     // Maximized image overlay - close on click
     maximizedImageOverlay.addEventListener('click', () => {
