@@ -118,6 +118,9 @@ async function init() {
     // Load and apply preferences
     loadPreferences();
 
+    // Refresh recipe dropdown to include user recipes
+    await refreshRecipeDropdown();
+
     try {
         const version = await invoke('get_app_version');
         statusEl.textContent = `imgstax v${version}`;
@@ -132,7 +135,71 @@ async function init() {
     openOutputButton.addEventListener('click', openOutputFolder);
 
     // Recipe event listener (main form)
-    document.getElementById('recipe').addEventListener('change', loadMainFormRecipe);
+    // Recipe dropdown handler
+    const editRecipeBtn = document.getElementById('editRecipeBtn');
+
+    document.getElementById('recipe').addEventListener('change', async function() {
+        const value = this.value;
+
+        if (value === '__editor__') {
+            // Open recipe editor for new recipe
+            await openRecipeEditor();
+            this.value = ''; // Reset dropdown
+            editRecipeBtn.style.display = 'none'; // Hide edit button
+        } else if (value === '__import__') {
+            // Import recipe from file
+            await importRecipe();
+            this.value = ''; // Reset dropdown
+            editRecipeBtn.style.display = 'none'; // Hide edit button
+        } else if (value === '__preview__') {
+            // Open recipe preview browser
+            await openRecipePreview();
+            this.value = ''; // Reset dropdown
+            editRecipeBtn.style.display = 'none'; // Hide edit button
+        } else if (value.startsWith('user:')) {
+            // Load user recipe
+            const recipeId = value.substring(5); // Remove 'user:' prefix
+
+            // Show edit button for user recipes
+            editRecipeBtn.style.display = 'block';
+
+            try {
+                const yamlContent = await invoke('load_user_recipe', { recipeId });
+                const recipe = jsyaml.load(yamlContent);
+                const settings = recipe.settings || {};
+
+                // Populate form with recipe settings
+                if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
+                if (settings.quality !== undefined) document.getElementById('quality').value = settings.quality;
+                if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
+                if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
+                if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
+                if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
+                if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
+                if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
+                if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
+                if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
+            } catch (error) {
+                console.error('Error loading user recipe:', error);
+                alert('Failed to load recipe: ' + error);
+            }
+        } else {
+            // Built-in recipe or custom settings
+            loadMainFormRecipe();
+            editRecipeBtn.style.display = 'none'; // Hide edit button
+        }
+    });
+
+    // Edit recipe button handler
+    editRecipeBtn.addEventListener('click', async () => {
+        const recipeSelect = document.getElementById('recipe');
+        const value = recipeSelect.value;
+
+        if (value.startsWith('user:')) {
+            const recipeId = value.substring(5); // Remove 'user:' prefix
+            await openRecipeEditor(recipeId); // Open editor in edit mode
+        }
+    });
 
     // Preferences event listeners
     document.getElementById('preferencesBtn').addEventListener('click', openPreferences);
@@ -140,6 +207,38 @@ async function init() {
     document.getElementById('savePreferences').addEventListener('click', savePreferences);
     document.getElementById('cancelPreferences').addEventListener('click', closePreferences);
     document.getElementById('resetPreferences').addEventListener('click', resetPreferences);
+
+    // Recipe editor event listeners
+    document.getElementById('saveRecipe').addEventListener('click', saveRecipe);
+    document.getElementById('exportRecipe').addEventListener('click', exportRecipe);
+    document.getElementById('duplicateRecipe').addEventListener('click', duplicateRecipe);
+    document.getElementById('deleteRecipe').addEventListener('click', deleteRecipe);
+    document.getElementById('cancelRecipeEditor').addEventListener('click', closeRecipeEditor);
+
+    // Recipe preview event listeners
+    document.getElementById('previewRecipeSelector').addEventListener('change', async function() {
+        await updatePreviewContent(this.value);
+    });
+    document.getElementById('recipeSearchInput').addEventListener('input', filterRecipes);
+    document.getElementById('loadFromPreview').addEventListener('click', loadFromPreview);
+    document.getElementById('editFromPreview').addEventListener('click', editFromPreview);
+    document.getElementById('closePreview').addEventListener('click', closeRecipePreview);
+
+    // ESC key to close dialogs
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            // Check which dialog is open and close it
+            if (document.getElementById('recipeEditorDialog').style.display === 'block') {
+                closeRecipeEditor();
+            } else if (document.getElementById('recipePreviewDialog').style.display === 'block') {
+                closeRecipePreview();
+            } else if (document.getElementById('preferencesDialog').style.display === 'block') {
+                closePreferences();
+            } else if (document.getElementById('progressDialog').style.display === 'block') {
+                // Don't close progress dialog on ESC - user should wait for completion
+            }
+        }
+    });
 
     // Listen for frame selection changes
     document.getElementById('startFrame').addEventListener('input', updateFileSelection);
@@ -607,6 +706,968 @@ async function openOutputFolder() {
     } catch (error) {
         console.error('Error opening folder:', error);
         alert(`Failed to open folder: ${error}`);
+    }
+}
+
+// Recipe Editor Functions
+let currentEditingRecipeId = null;
+
+// Generate a simple UUID v4
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+async function openRecipeEditor(recipeId = null) {
+    if (recipeId) {
+        // Edit mode - load existing recipe
+        currentEditingRecipeId = recipeId;
+        document.getElementById('recipeEditorTitle').textContent = 'Edit Recipe';
+        document.getElementById('exportRecipe').style.display = 'inline-block';
+        document.getElementById('duplicateRecipe').style.display = 'inline-block';
+        document.getElementById('deleteRecipe').style.display = 'inline-block';
+
+        try {
+            const yamlContent = await invoke('load_user_recipe', { recipeId });
+            const recipe = jsyaml.load(yamlContent);
+
+            // Populate form with recipe data
+            document.getElementById('recipeName').value = recipe.name || '';
+            document.getElementById('recipeDescription').value = recipe.description || '';
+
+            const settings = recipe.settings || {};
+            document.getElementById('recipeStacking').value = settings.stacking || 'maximum';
+            document.getElementById('recipeQuality').value = settings.quality || 95;
+            document.getElementById('recipePngCompress').value = settings.png_compress_level || 6;
+            document.getElementById('recipeTiffCompression').value = settings.tiff_compression || 'deflate';
+            document.getElementById('recipeTrailLength').value = settings.trail_length || 0;
+            document.getElementById('recipeFrameInterval').value = settings.step || 1;
+            document.getElementById('recipeTrailGradient').checked = settings.trail_gradient || false;
+            document.getElementById('recipeGradientDecay').value = settings.gradient_decay || 0.85;
+            document.getElementById('recipeGradientPlateau').value = settings.gradient_plateau || 0;
+            document.getElementById('recipeFadeOut').checked = settings.fade_out || false;
+        } catch (error) {
+            console.error('Error loading recipe:', error);
+            alert('Failed to load recipe: ' + error);
+            return;
+        }
+    } else {
+        // New recipe mode - generate a new UUID
+        currentEditingRecipeId = generateUUID();
+        document.getElementById('recipeEditorTitle').textContent = 'New Recipe';
+        document.getElementById('exportRecipe').style.display = 'none';
+        document.getElementById('duplicateRecipe').style.display = 'none';
+        document.getElementById('deleteRecipe').style.display = 'none';
+
+        // Clear form
+        document.getElementById('recipeName').value = '';
+        document.getElementById('recipeDescription').value = '';
+        document.getElementById('recipeStacking').value = 'maximum';
+        document.getElementById('recipeQuality').value = 95;
+        document.getElementById('recipePngCompress').value = 6;
+        document.getElementById('recipeTiffCompression').value = 'deflate';
+        document.getElementById('recipeTrailLength').value = 0;
+        document.getElementById('recipeFrameInterval').value = 1;
+        document.getElementById('recipeTrailGradient').checked = false;
+        document.getElementById('recipeGradientDecay').value = 0.85;
+        document.getElementById('recipeGradientPlateau').value = 0;
+        document.getElementById('recipeFadeOut').checked = false;
+    }
+
+    // Show dialog
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('recipeEditorDialog').style.display = 'block';
+
+    // Set up validation listeners
+    setupRecipeValidation();
+}
+
+function closeRecipeEditor() {
+    currentEditingRecipeId = null;
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('recipeEditorDialog').style.display = 'none';
+
+    // Clear validation errors
+    clearRecipeValidationErrors();
+}
+
+// Recipe validation functions
+function validateRecipeField(fieldId, value) {
+    const validations = {
+        'recipeQuality': {
+            min: 1,
+            max: 100,
+            message: 'Quality must be between 1 and 100'
+        },
+        'recipePngCompress': {
+            min: 0,
+            max: 9,
+            message: 'PNG compression must be between 0 and 9'
+        },
+        'recipeGradientDecay': {
+            min: 0,
+            max: 1,
+            message: 'Gradient decay must be between 0.0 and 1.0'
+        },
+        'recipeTrailLength': {
+            min: 0,
+            max: null,
+            message: 'Trail length must be 0 or greater'
+        },
+        'recipeFrameInterval': {
+            min: 1,
+            max: null,
+            message: 'Frame interval must be 1 or greater'
+        },
+        'recipeGradientPlateau': {
+            min: 0,
+            max: null,
+            message: 'Gradient plateau must be 0 or greater'
+        }
+    };
+
+    const validation = validations[fieldId];
+    if (!validation) return { valid: true };
+
+    const numValue = parseFloat(value);
+
+    if (isNaN(numValue)) {
+        return { valid: false, message: 'Must be a valid number' };
+    }
+
+    if (validation.min !== null && numValue < validation.min) {
+        return { valid: false, message: validation.message };
+    }
+
+    if (validation.max !== null && numValue > validation.max) {
+        return { valid: false, message: validation.message };
+    }
+
+    return { valid: true };
+}
+
+function showValidationError(fieldId, message) {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+
+    // Add error class to field
+    field.classList.add('validation-error');
+
+    // Create or update error message
+    let errorEl = field.parentElement.querySelector('.field-error-message');
+    if (!errorEl) {
+        errorEl = document.createElement('div');
+        errorEl.className = 'field-error-message';
+        field.parentElement.appendChild(errorEl);
+    }
+    errorEl.textContent = message;
+}
+
+function clearFieldValidationError(fieldId) {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+
+    // Remove error class
+    field.classList.remove('validation-error');
+
+    // Remove error message
+    const errorEl = field.parentElement.querySelector('.field-error-message');
+    if (errorEl) {
+        errorEl.remove();
+    }
+}
+
+function clearRecipeValidationErrors() {
+    document.querySelectorAll('.validation-error').forEach(el => {
+        el.classList.remove('validation-error');
+    });
+    document.querySelectorAll('.field-error-message').forEach(el => {
+        el.remove();
+    });
+}
+
+function validateAllRecipeFields() {
+    const fieldsToValidate = [
+        'recipeQuality',
+        'recipePngCompress',
+        'recipeGradientDecay',
+        'recipeTrailLength',
+        'recipeFrameInterval',
+        'recipeGradientPlateau'
+    ];
+
+    let allValid = true;
+
+    fieldsToValidate.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        const result = validateRecipeField(fieldId, field.value);
+        if (!result.valid) {
+            showValidationError(fieldId, result.message);
+            allValid = false;
+        } else {
+            clearFieldValidationError(fieldId);
+        }
+    });
+
+    // Also validate recipe name
+    const recipeName = document.getElementById('recipeName').value.trim();
+    if (!recipeName) {
+        showValidationError('recipeName', 'Recipe name is required');
+        allValid = false;
+    } else {
+        clearFieldValidationError('recipeName');
+    }
+
+    return allValid;
+}
+
+function setupRecipeValidation() {
+    const fieldsToValidate = [
+        'recipeName',
+        'recipeQuality',
+        'recipePngCompress',
+        'recipeGradientDecay',
+        'recipeTrailLength',
+        'recipeFrameInterval',
+        'recipeGradientPlateau'
+    ];
+
+    fieldsToValidate.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        // Remove any existing listener (to avoid duplicates)
+        field.removeEventListener('input', validateOnInput);
+        field.removeEventListener('blur', validateOnBlur);
+
+        // Add validation on input
+        field.addEventListener('input', validateOnInput);
+
+        // Add validation on blur
+        field.addEventListener('blur', validateOnBlur);
+    });
+}
+
+function validateOnInput(event) {
+    const fieldId = event.target.id;
+
+    if (fieldId === 'recipeName') {
+        const value = event.target.value.trim();
+        if (value) {
+            clearFieldValidationError(fieldId);
+        }
+    } else {
+        const result = validateRecipeField(fieldId, event.target.value);
+        if (result.valid) {
+            clearFieldValidationError(fieldId);
+        }
+    }
+}
+
+function validateOnBlur(event) {
+    const fieldId = event.target.id;
+
+    if (fieldId === 'recipeName') {
+        const value = event.target.value.trim();
+        if (!value) {
+            showValidationError(fieldId, 'Recipe name is required');
+        } else {
+            clearFieldValidationError(fieldId);
+        }
+    } else {
+        const result = validateRecipeField(fieldId, event.target.value);
+        if (!result.valid) {
+            showValidationError(fieldId, result.message);
+        } else {
+            clearFieldValidationError(fieldId);
+        }
+    }
+}
+
+async function saveRecipe() {
+    // Validate all fields before saving
+    if (!validateAllRecipeFields()) {
+        return; // Don't save if validation fails
+    }
+
+    const recipeName = document.getElementById('recipeName').value.trim();
+    const recipeDescription = document.getElementById('recipeDescription').value.trim();
+
+    // Use the currentEditingRecipeId (either loaded or newly generated UUID)
+    const recipeId = currentEditingRecipeId;
+
+    // Build YAML content
+    const settings = {
+        stacking: document.getElementById('recipeStacking').value,
+        quality: parseInt(document.getElementById('recipeQuality').value),
+        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
+        tiff_compression: document.getElementById('recipeTiffCompression').value,
+        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
+        step: parseInt(document.getElementById('recipeFrameInterval').value),
+        trail_gradient: document.getElementById('recipeTrailGradient').checked,
+        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
+        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
+        fade_out: document.getElementById('recipeFadeOut').checked
+    };
+
+    const yamlContent = `# ${recipeName}
+# ${recipeDescription}
+
+name: "${recipeName}"
+description: "${recipeDescription}"
+
+settings:
+  stacking: ${settings.stacking}
+  quality: ${settings.quality}
+  png_compress_level: ${settings.png_compress_level}
+  tiff_compression: ${settings.tiff_compression}
+  trail_length: ${settings.trail_length}
+  step: ${settings.step}
+  trail_gradient: ${settings.trail_gradient}
+  gradient_decay: ${settings.gradient_decay}
+  gradient_plateau: ${settings.gradient_plateau}
+  fade_out: ${settings.fade_out}
+`;
+
+    try {
+        await invoke('save_user_recipe', { recipeId, content: yamlContent });
+        await refreshRecipeDropdown();
+        closeRecipeEditor();
+    } catch (error) {
+        console.error('Error saving recipe:', error);
+        alert('Failed to save recipe: ' + error);
+    }
+}
+
+async function deleteRecipe() {
+    if (!currentEditingRecipeId) {
+        return;
+    }
+
+    const recipeName = document.getElementById('recipeName').value.trim() || 'this recipe';
+
+    if (!confirm(`Delete "${recipeName}"? This cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        await invoke('delete_user_recipe', { recipeId: currentEditingRecipeId });
+        await refreshRecipeDropdown();
+        closeRecipeEditor();
+    } catch (error) {
+        console.error('Error deleting recipe:', error);
+        alert('Failed to delete recipe: ' + error);
+    }
+}
+
+async function duplicateRecipe() {
+    if (!currentEditingRecipeId) {
+        return;
+    }
+
+    // Get current recipe name and append " (Copy)"
+    const originalName = document.getElementById('recipeName').value.trim();
+    const newName = originalName ? `${originalName} (Copy)` : 'Recipe (Copy)';
+
+    // Generate new UUID for the duplicate
+    const newRecipeId = generateUUID();
+
+    // Gather all current form values
+    const recipeDescription = document.getElementById('recipeDescription').value.trim();
+    const settings = {
+        stacking: document.getElementById('recipeStacking').value,
+        quality: parseInt(document.getElementById('recipeQuality').value),
+        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
+        tiff_compression: document.getElementById('recipeTiffCompression').value,
+        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
+        step: parseInt(document.getElementById('recipeFrameInterval').value),
+        trail_gradient: document.getElementById('recipeTrailGradient').checked,
+        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
+        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
+        fade_out: document.getElementById('recipeFadeOut').checked
+    };
+
+    // Build YAML content for the duplicate
+    const yamlContent = `name: ${newName}
+description: ${recipeDescription}
+settings:
+  stacking: ${settings.stacking}
+  quality: ${settings.quality}
+  png_compress_level: ${settings.png_compress_level}
+  tiff_compression: ${settings.tiff_compression}
+  trail_length: ${settings.trail_length}
+  step: ${settings.step}
+  trail_gradient: ${settings.trail_gradient}
+  gradient_decay: ${settings.gradient_decay}
+  gradient_plateau: ${settings.gradient_plateau}
+  fade_out: ${settings.fade_out}
+`;
+
+    try {
+        // Save the duplicate recipe
+        await invoke('save_user_recipe', { recipeId: newRecipeId, content: yamlContent });
+        await refreshRecipeDropdown();
+
+        // Re-open the editor with the new duplicate recipe
+        closeRecipeEditor();
+        await openRecipeEditor(newRecipeId);
+    } catch (error) {
+        console.error('Error duplicating recipe:', error);
+        alert('Failed to duplicate recipe: ' + error);
+    }
+}
+
+async function exportRecipe() {
+    if (!currentEditingRecipeId) {
+        return;
+    }
+
+    const recipeName = document.getElementById('recipeName').value.trim() || 'recipe';
+    const recipeDescription = document.getElementById('recipeDescription').value.trim();
+
+    // Gather all current form values
+    const settings = {
+        stacking: document.getElementById('recipeStacking').value,
+        quality: parseInt(document.getElementById('recipeQuality').value),
+        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
+        tiff_compression: document.getElementById('recipeTiffCompression').value,
+        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
+        step: parseInt(document.getElementById('recipeFrameInterval').value),
+        trail_gradient: document.getElementById('recipeTrailGradient').checked,
+        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
+        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
+        fade_out: document.getElementById('recipeFadeOut').checked
+    };
+
+    // Build YAML content
+    const yamlContent = `# ${recipeName}
+# ${recipeDescription}
+
+name: "${recipeName}"
+description: "${recipeDescription}"
+
+settings:
+  stacking: ${settings.stacking}
+  quality: ${settings.quality}
+  png_compress_level: ${settings.png_compress_level}
+  tiff_compression: ${settings.tiff_compression}
+  trail_length: ${settings.trail_length}
+  step: ${settings.step}
+  trail_gradient: ${settings.trail_gradient}
+  gradient_decay: ${settings.gradient_decay}
+  gradient_plateau: ${settings.gradient_plateau}
+  fade_out: ${settings.fade_out}
+`;
+
+    try {
+        // Generate safe filename from recipe name
+        const safeFilename = recipeName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const defaultPath = `${safeFilename}.yaml`;
+
+        // Use Tauri dialog to save file
+        const { save } = window.__TAURI__.dialog;
+        const filePath = await save({
+            defaultPath: defaultPath,
+            filters: [{
+                name: 'YAML Recipe',
+                extensions: ['yaml', 'yml']
+            }]
+        });
+
+        if (filePath) {
+            // Write file using Rust command
+            await invoke('export_user_recipe', {
+                recipeId: currentEditingRecipeId,
+                exportPath: filePath
+            });
+            alert(`Recipe exported successfully to:\n${filePath}`);
+        }
+    } catch (error) {
+        console.error('Error exporting recipe:', error);
+        alert('Failed to export recipe: ' + error);
+    }
+}
+
+async function importRecipe() {
+    try {
+        // Use Tauri dialog to open file
+        const { open } = window.__TAURI__.dialog;
+        const filePath = await open({
+            multiple: false,
+            filters: [{
+                name: 'YAML Recipe',
+                extensions: ['yaml', 'yml']
+            }]
+        });
+
+        if (!filePath) {
+            return; // User cancelled
+        }
+
+        // Read file using Rust command
+        const yamlContent = await invoke('import_user_recipe_from_file', {
+            importPath: filePath
+        });
+
+        // Parse YAML
+        const recipe = jsyaml.load(yamlContent);
+
+        if (!recipe || !recipe.settings) {
+            alert('Invalid recipe file format');
+            return;
+        }
+
+        // Generate new UUID for imported recipe
+        const newRecipeId = generateUUID();
+
+        // Get recipe name, add " (Imported)" if not already present
+        let recipeName = recipe.name || 'Imported Recipe';
+        if (!recipeName.includes('(Imported)')) {
+            recipeName += ' (Imported)';
+        }
+
+        // Update the recipe name in the YAML
+        const updatedYaml = yamlContent.replace(
+            /^name:\s*"?.*"?$/m,
+            `name: "${recipeName}"`
+        );
+
+        // Save as new recipe
+        await invoke('save_user_recipe', { recipeId: newRecipeId, content: updatedYaml });
+        await refreshRecipeDropdown();
+
+        // Open the editor with the imported recipe for review
+        await openRecipeEditor(newRecipeId);
+
+        alert(`Recipe "${recipeName}" imported successfully!`);
+    } catch (error) {
+        console.error('Error importing recipe:', error);
+        alert('Failed to import recipe: ' + error);
+    }
+}
+
+// Recipe Preview Functions
+let currentPreviewRecipeId = null;
+
+async function openRecipePreview() {
+    try {
+        // Populate the preview selector dropdown
+        const previewSelector = document.getElementById('previewRecipeSelector');
+        previewSelector.innerHTML = '<option value="">Choose a recipe...</option>';
+
+        // Add built-in recipes
+        const builtInRecipes = [
+            { id: 'stars', name: 'Star Trails' },
+            { id: 'murmurations', name: 'Bird Murmurations' },
+            { id: 'traffic', name: 'Traffic Light Trails' },
+            { id: 'timelapse', name: 'Time-Lapse' },
+            { id: 'fireworks', name: 'Fireworks' },
+            { id: 'noise-reduction', name: 'Noise Reduction' }
+        ];
+
+        builtInRecipes.forEach(recipe => {
+            const option = document.createElement('option');
+            option.value = `builtin:${recipe.id}`;
+            option.textContent = recipe.name;
+            previewSelector.appendChild(option);
+        });
+
+        // Get and add user recipes
+        const userRecipes = await invoke('list_user_recipes');
+
+        if (userRecipes.length > 0) {
+            // Add divider before user recipes
+            const divider = document.createElement('option');
+            divider.disabled = true;
+            divider.textContent = '────────────';
+            previewSelector.appendChild(divider);
+
+            userRecipes.forEach(recipe => {
+                const option = document.createElement('option');
+                option.value = `user:${recipe.id}`;
+                option.textContent = `${recipe.name} (User)`;
+                previewSelector.appendChild(option);
+            });
+        }
+
+        // Reset preview state
+        currentPreviewRecipeId = null;
+        document.getElementById('previewDetailsSection').style.display = 'none';
+        document.getElementById('loadFromPreview').style.display = 'none';
+        document.getElementById('editFromPreview').style.display = 'none';
+
+        // Clear search input
+        document.getElementById('recipeSearchInput').value = '';
+
+        // Show dialog
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('recipePreviewDialog').style.display = 'block';
+    } catch (error) {
+        console.error('Error opening recipe preview:', error);
+        alert('Failed to open recipe preview: ' + error);
+    }
+}
+
+function filterRecipes() {
+    const searchInput = document.getElementById('recipeSearchInput');
+    const searchText = searchInput.value.toLowerCase().trim();
+    const previewSelector = document.getElementById('previewRecipeSelector');
+    const options = Array.from(previewSelector.options);
+
+    if (!searchText) {
+        // Show all options if search is empty
+        options.forEach(option => {
+            option.style.display = '';
+        });
+        return;
+    }
+
+    // Track if we have visible recipes in built-in and user sections
+    let hasVisibleBuiltIn = false;
+    let hasVisibleUser = false;
+    let inUserSection = false;
+
+    options.forEach((option, index) => {
+        // Skip the "Choose a recipe..." option
+        if (index === 0) {
+            option.style.display = '';
+            return;
+        }
+
+        // Check if this is a divider
+        if (option.disabled && option.textContent.includes('────')) {
+            // We'll handle divider visibility after checking all options
+            return;
+        }
+
+        // Check if we've entered the user section
+        if (option.value.startsWith('user:')) {
+            inUserSection = true;
+        }
+
+        // Filter recipe options based on search text
+        const optionText = option.textContent.toLowerCase();
+        const matches = optionText.includes(searchText);
+
+        if (matches) {
+            option.style.display = '';
+            if (inUserSection) {
+                hasVisibleUser = true;
+            } else if (option.value.startsWith('builtin:')) {
+                hasVisibleBuiltIn = true;
+            }
+        } else {
+            option.style.display = 'none';
+        }
+    });
+
+    // Show/hide divider based on whether there are visible recipes in user section
+    options.forEach(option => {
+        if (option.disabled && option.textContent.includes('────')) {
+            // Hide the divider before user recipes if no user recipes are visible
+            const nextOption = options[options.indexOf(option) + 1];
+            if (nextOption && nextOption.value.startsWith('user:')) {
+                option.style.display = hasVisibleUser ? '' : 'none';
+            }
+        }
+    });
+}
+
+async function updatePreviewContent(recipeId) {
+    if (!recipeId) {
+        document.getElementById('previewDetailsSection').style.display = 'none';
+        document.getElementById('loadFromPreview').style.display = 'none';
+        document.getElementById('editFromPreview').style.display = 'none';
+        return;
+    }
+
+    currentPreviewRecipeId = recipeId;
+
+    try {
+        let settings = {};
+        let recipeName = '';
+        let recipeDescription = '';
+        let isUserRecipe = false;
+
+        if (recipeId.startsWith('builtin:')) {
+            // Handle built-in recipe
+            const builtinId = recipeId.substring(8); // Remove 'builtin:' prefix
+            const template = recipeTemplates[builtinId];
+
+            if (!template) {
+                throw new Error(`Built-in recipe '${builtinId}' not found`);
+            }
+
+            // Map built-in recipe IDs to display names
+            const builtinNames = {
+                'stars': 'Star Trails',
+                'murmurations': 'Bird Murmurations',
+                'traffic': 'Traffic Light Trails',
+                'timelapse': 'Time-Lapse',
+                'fireworks': 'Fireworks',
+                'noise-reduction': 'Noise Reduction'
+            };
+
+            // Map built-in recipe IDs to descriptions
+            const builtinDescriptions = {
+                'stars': 'Optimized for capturing star trails with maximum brightness stacking',
+                'murmurations': 'Captures flowing motion patterns with minimum brightness and gradients',
+                'traffic': 'Light trails from traffic with maximum brightness and fade out',
+                'timelapse': 'Smooth time-lapse sequences using mean averaging',
+                'fireworks': 'Bright fireworks displays with maximum brightness stacking',
+                'noise-reduction': 'Reduces noise by averaging all frames together'
+            };
+
+            recipeName = builtinNames[builtinId] || 'Built-in Recipe';
+            recipeDescription = builtinDescriptions[builtinId] || 'A built-in recipe preset.';
+
+            // Map template format to settings format
+            settings = {
+                stacking: template.stacking,
+                quality: template.quality,
+                trail_length: template.trail_length,
+                step: template.frame_interval,
+                trail_gradient: template.trail_gradient,
+                gradient_decay: template.gradient_decay,
+                gradient_plateau: template.gradient_plateau,
+                fade_out: template.fade_out
+            };
+            isUserRecipe = false;
+        } else if (recipeId.startsWith('user:')) {
+            // Handle user recipe
+            const userId = recipeId.substring(5); // Remove 'user:' prefix
+            const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
+            const recipe = jsyaml.load(yamlContent);
+
+            recipeName = recipe.name || 'Unnamed Recipe';
+            recipeDescription = recipe.description || 'No description provided.';
+            settings = recipe.settings || {};
+            isUserRecipe = true;
+        } else {
+            throw new Error('Invalid recipe ID format');
+        }
+
+        // Populate preview with recipe data
+        document.getElementById('previewName').textContent = recipeName;
+        document.getElementById('previewDescription').textContent = recipeDescription;
+
+        // Format stacking method
+        const stackingMap = {
+            'maximum': 'Maximum (brightest)',
+            'minimum': 'Minimum (darkest)',
+            'mean': 'Mean (average)',
+            'median': 'Median'
+        };
+        document.getElementById('previewStacking').textContent = stackingMap[settings.stacking] || settings.stacking || 'maximum';
+
+        // Format quality settings
+        document.getElementById('previewQuality').textContent = settings.quality !== undefined ? settings.quality : '95';
+        document.getElementById('previewPngCompress').textContent = settings.png_compress_level !== undefined ? settings.png_compress_level : '6';
+        document.getElementById('previewTiffCompression').textContent = settings.tiff_compression || 'deflate';
+
+        // Format trail settings
+        document.getElementById('previewTrailLength').textContent = settings.trail_length !== undefined ? (settings.trail_length === 0 ? '0 (all frames)' : settings.trail_length) : '0 (all frames)';
+        document.getElementById('previewFrameInterval').textContent = settings.step !== undefined ? settings.step : '1';
+        document.getElementById('previewTrailGradient').textContent = settings.trail_gradient ? '✓ Enabled' : '✗ Disabled';
+        document.getElementById('previewGradientDecay').textContent = settings.gradient_decay !== undefined ? settings.gradient_decay : '0.85';
+        document.getElementById('previewGradientPlateau').textContent = settings.gradient_plateau !== undefined ? settings.gradient_plateau : '0';
+        document.getElementById('previewFadeOut').textContent = settings.fade_out ? '✓ Enabled' : '✗ Disabled';
+
+        // Show preview details and buttons
+        document.getElementById('previewDetailsSection').style.display = 'block';
+        document.getElementById('loadFromPreview').style.display = 'inline-block';
+
+        // Only show edit button for user recipes
+        if (isUserRecipe) {
+            document.getElementById('editFromPreview').style.display = 'inline-block';
+        } else {
+            document.getElementById('editFromPreview').style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error loading recipe preview:', error);
+        alert('Failed to load recipe preview: ' + error);
+    }
+}
+
+function closeRecipePreview() {
+    currentPreviewRecipeId = null;
+    document.getElementById('recipeSearchInput').value = '';
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('recipePreviewDialog').style.display = 'none';
+}
+
+async function loadFromPreview() {
+    if (!currentPreviewRecipeId) return;
+
+    try {
+        let settings = {};
+
+        if (currentPreviewRecipeId.startsWith('builtin:')) {
+            // Handle built-in recipe
+            const builtinId = currentPreviewRecipeId.substring(8); // Remove 'builtin:' prefix
+            const template = recipeTemplates[builtinId];
+
+            if (!template) {
+                throw new Error(`Built-in recipe '${builtinId}' not found`);
+            }
+
+            // Map template format to settings format
+            settings = {
+                stacking: template.stacking,
+                quality: template.quality,
+                png_compress_level: template.png_compress_level,
+                tiff_compression: template.tiff_compression,
+                trail_length: template.trail_length,
+                step: template.frame_interval,
+                trail_gradient: template.trail_gradient,
+                gradient_decay: template.gradient_decay,
+                gradient_plateau: template.gradient_plateau,
+                fade_out: template.fade_out
+            };
+        } else if (currentPreviewRecipeId.startsWith('user:')) {
+            // Handle user recipe
+            const userId = currentPreviewRecipeId.substring(5); // Remove 'user:' prefix
+            const yamlContent = await invoke('load_user_recipe', { recipeId: userId });
+            const recipe = jsyaml.load(yamlContent);
+            settings = recipe.settings || {};
+        } else {
+            throw new Error('Invalid recipe ID format');
+        }
+
+        // Populate form with recipe settings
+        if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
+        if (settings.quality !== undefined) document.getElementById('quality').value = settings.quality;
+        if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
+        if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
+        if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
+        if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
+        if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
+        if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
+        if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
+        if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
+
+        // Update the main recipe dropdown to show this recipe
+        document.getElementById('recipe').value = currentPreviewRecipeId;
+
+        // Close preview dialog
+        closeRecipePreview();
+    } catch (error) {
+        console.error('Error loading recipe from preview:', error);
+        alert('Failed to load recipe: ' + error);
+    }
+}
+
+async function editFromPreview() {
+    if (!currentPreviewRecipeId) return;
+
+    // Only allow editing user recipes
+    if (!currentPreviewRecipeId.startsWith('user:')) {
+        alert('Only user recipes can be edited. Built-in recipes are read-only.');
+        return;
+    }
+
+    // Extract user recipe ID
+    const userId = currentPreviewRecipeId.substring(5); // Remove 'user:' prefix
+
+    // Close preview and open editor
+    closeRecipePreview();
+    await openRecipeEditor(userId);
+}
+
+async function refreshRecipeDropdown() {
+    const recipeSelect = document.getElementById('recipe');
+    const currentValue = recipeSelect.value;
+
+    // Clear existing options
+    recipeSelect.innerHTML = '';
+
+    // Add "Custom settings..." option
+    const customOption = document.createElement('option');
+    customOption.value = '';
+    customOption.textContent = 'Custom settings...';
+    recipeSelect.appendChild(customOption);
+
+    // Add divider (disabled optgroup)
+    const divider1 = document.createElement('option');
+    divider1.disabled = true;
+    divider1.textContent = '────────────';
+    recipeSelect.appendChild(divider1);
+
+    // Add "Recipe Editor" option
+    const editorOption = document.createElement('option');
+    editorOption.value = '__editor__';
+    editorOption.textContent = '✎ Recipe Editor';
+    recipeSelect.appendChild(editorOption);
+
+    // Add "Import Recipe" option
+    const importOption = document.createElement('option');
+    importOption.value = '__import__';
+    importOption.textContent = '📥 Import Recipe...';
+    recipeSelect.appendChild(importOption);
+
+    // Add "Preview Recipes" option
+    const previewOption = document.createElement('option');
+    previewOption.value = '__preview__';
+    previewOption.textContent = '👁 Preview Recipes...';
+    recipeSelect.appendChild(previewOption);
+
+    // Add divider
+    const divider2 = document.createElement('option');
+    divider2.disabled = true;
+    divider2.textContent = '────────────';
+    recipeSelect.appendChild(divider2);
+
+    // Add built-in recipes
+    const builtInRecipes = [
+        { value: 'stars', label: 'Star Trails' },
+        { value: 'murmurations', label: 'Bird Murmurations' },
+        { value: 'traffic', label: 'Traffic Light Trails' },
+        { value: 'timelapse', label: 'Time-Lapse' },
+        { value: 'fireworks', label: 'Fireworks' },
+        { value: 'noise-reduction', label: 'Noise Reduction' }
+    ];
+
+    builtInRecipes.forEach(recipe => {
+        const option = document.createElement('option');
+        option.value = recipe.value;
+        option.textContent = recipe.label;
+        recipeSelect.appendChild(option);
+    });
+
+    // Load and add user recipes
+    try {
+        const userRecipes = await invoke('list_user_recipes');
+
+        if (userRecipes.length > 0) {
+            // Add divider before user recipes
+            const divider3 = document.createElement('option');
+            divider3.disabled = true;
+            divider3.textContent = '────────────';
+            recipeSelect.appendChild(divider3);
+
+            // Add user recipes with (User) prefix
+            userRecipes.forEach(recipe => {
+                const option = document.createElement('option');
+                option.value = `user:${recipe.id}`;
+                option.textContent = `${recipe.name} (User)`;
+                recipeSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading user recipes:', error);
+    }
+
+    // Restore previous selection if still valid
+    if (currentValue) {
+        const options = Array.from(recipeSelect.options);
+        if (options.some(opt => opt.value === currentValue)) {
+            recipeSelect.value = currentValue;
+        }
     }
 }
 
