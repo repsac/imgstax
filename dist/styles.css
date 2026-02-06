@@ -352,6 +352,7 @@ body {
     border-top: 1px solid var(--border-color);
     background: var(--bg-tertiary);
     overflow: hidden;
+    border-radius: 0 0 12px 0;
 }
 
 .preview-header {
