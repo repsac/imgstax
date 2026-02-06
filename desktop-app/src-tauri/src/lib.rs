@@ -97,6 +97,7 @@ struct StackConfig {
     quality: u32,
     png_compress_level: u32,
     tiff_compression: String,
+    export_recipe: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -624,6 +625,57 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
             output_dir: String::new(),
             error: Some("Stacking failed or was cancelled".to_string()),
         });
+    }
+
+    // Export recipe.yaml if requested
+    if config.export_recipe {
+        let recipe_path = Path::new(&output_abs).join("recipe.yaml");
+
+        // Build recipe YAML content
+        let mut recipe_content = format!(
+            "# imgstax Recipe\n\
+             # Generated automatically with exported images\n\
+             \n\
+             name: Exported Recipe\n\
+             description: Configuration used for this stacking export\n\
+             \n\
+             stacking: {}\n\
+             quality: {}\n\
+             png_compress_level: {}\n\
+             tiff_compression: {}\n",
+            config.stacking,
+            config.quality,
+            config.png_compress_level,
+            config.tiff_compression
+        );
+
+        // Add optional parameters if they were set
+        if let Some(start_frame) = config.start_frame {
+            recipe_content.push_str(&format!("start_frame: {}\n", start_frame));
+        }
+        if let Some(end_frame) = config.end_frame {
+            recipe_content.push_str(&format!("end_frame: {}\n", end_frame));
+        }
+        if config.frame_interval > 1 {
+            recipe_content.push_str(&format!("frame_interval: {}\n", config.frame_interval));
+        }
+        if config.trail_length > 0 {
+            recipe_content.push_str(&format!("trail_length: {}\n", config.trail_length));
+        }
+        if config.trail_gradient {
+            recipe_content.push_str(&format!("trail_gradient: true\n"));
+            recipe_content.push_str(&format!("gradient_decay: {}\n", config.gradient_decay));
+            recipe_content.push_str(&format!("gradient_plateau: {}\n", config.gradient_plateau));
+        }
+        if config.fade_out {
+            recipe_content.push_str("fade_out: true\n");
+        }
+
+        // Write recipe file
+        if let Err(e) = fs::write(&recipe_path, recipe_content) {
+            eprintln!("Warning: Failed to write recipe.yaml: {}", e);
+            // Don't fail the entire operation if recipe export fails
+        }
     }
 
     Ok(StackResult {
