@@ -593,11 +593,29 @@ function setupQueueEventDelegation() {
     queueListDelegationSetup = true;
 }
 
+// Helper function to format time in seconds to human-readable string
+function formatTimeRemaining(seconds) {
+    if (seconds < 0 || !isFinite(seconds)) return '';
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+        return `${hours}h ${minutes}m remaining`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${secs}s remaining`;
+    } else {
+        return `${secs}s remaining`;
+    }
+}
+
 // Execute single stacking job with progress dialog
 async function executeStackingJob(config) {
     return new Promise(async (resolve) => {
         let unlisten = null;
         let cancelled = false;
+        let startTime = null;
 
         try {
             // Show progress dialog
@@ -626,10 +644,31 @@ async function executeStackingJob(config) {
                 const data = event.payload;
 
                 if (data.type === 'progress') {
+                    // Track start time on first progress event
+                    if (startTime === null && data.current > 0) {
+                        startTime = Date.now();
+                    }
+
                     const percent = Math.round((data.current / data.total) * 100);
                     progressFill.style.width = `${percent}%`;
                     progressFill.textContent = `${percent}%`;
-                    progressText.textContent = `Processing frame ${data.current} of ${data.total}...`;
+
+                    let statusText = `Processing frame ${data.current} of ${data.total}...`;
+
+                    // Calculate ETA if we have processed at least one frame
+                    if (startTime !== null && data.current > 0) {
+                        const elapsed = (Date.now() - startTime) / 1000; // in seconds
+                        const avgTimePerFrame = elapsed / data.current;
+                        const framesRemaining = data.total - data.current;
+                        const estimatedSeconds = avgTimePerFrame * framesRemaining;
+                        const etaText = formatTimeRemaining(estimatedSeconds);
+
+                        if (etaText) {
+                            statusText += ` (${etaText})`;
+                        }
+                    }
+
+                    progressText.textContent = statusText;
                 }
             });
 
@@ -969,17 +1008,42 @@ async function init() {
     document.getElementById('frameInterval').addEventListener('input', updateFileSelection);
 
     // Listen for stacking progress
+    let regularStackingStartTime = null;
     await listen('stacking-progress', (event) => {
         const data = event.payload;
         if (data.type === 'progress') {
+            // Track start time on first progress event
+            if (regularStackingStartTime === null && data.current > 0) {
+                regularStackingStartTime = Date.now();
+            }
+
             const percent = Math.round((data.current / data.total) * 100);
             progressFill.style.width = `${percent}%`;
             progressFill.textContent = `${percent}%`;
-            progressText.textContent = `Processing frame ${data.current} of ${data.total}`;
-            if (data.file) {
-                progressText.textContent += ` - ${data.file}`;
+
+            let statusText = `Processing frame ${data.current} of ${data.total}`;
+
+            // Calculate ETA if we have processed at least one frame
+            if (regularStackingStartTime !== null && data.current > 0) {
+                const elapsed = (Date.now() - regularStackingStartTime) / 1000; // in seconds
+                const avgTimePerFrame = elapsed / data.current;
+                const framesRemaining = data.total - data.current;
+                const estimatedSeconds = avgTimePerFrame * framesRemaining;
+                const etaText = formatTimeRemaining(estimatedSeconds);
+
+                if (etaText) {
+                    statusText += ` (${etaText})`;
+                }
             }
+
+            if (data.file) {
+                statusText += ` - ${data.file}`;
+            }
+
+            progressText.textContent = statusText;
         } else if (data.type === 'complete') {
+            // Reset start time for next stacking
+            regularStackingStartTime = null;
             progressFill.style.width = '100%';
             progressFill.textContent = '100%';
             progressText.textContent = 'Stacking complete!';
