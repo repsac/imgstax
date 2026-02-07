@@ -251,10 +251,41 @@ body {
 }
 
 .form-wrapper {
-    flex: 0 0 525px;
+    flex: 0 0 600px;
     padding: 40px;
     overflow-y: auto;
     height: 100%;
+    position: relative;
+}
+
+.reset-form-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.reset-form-button:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: rotate(180deg);
+}
+
+.reset-form-button:active {
+    transform: rotate(180deg) scale(0.95);
 }
 
 .file-browser-panel {
