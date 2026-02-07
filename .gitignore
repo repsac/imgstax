@@ -225,3 +225,7 @@ stacked_*/
 # Ignore test output directories
 test_*/
 *_test/
+
+#Ignore build binaries
+dist/imgstax
+desktop-app/src-tauri/binaries/
