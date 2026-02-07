@@ -251,7 +251,7 @@ body {
 }
 
 .form-wrapper {
-    flex: 0 0 525px;
+    flex: 0 0 600px;
     padding: 40px;
     overflow-y: auto;
     height: 100%;
