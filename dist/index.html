@@ -24,6 +24,7 @@
     <div class="container">
         <div class="main-content">
             <div class="form-wrapper">
+                <button id="resetFormBtn" class="reset-form-button" title="Reset all settings">↻</button>
                 <div class="form-group">
                 <label for="inputDir">Input Directory</label>
                 <div class="directory-input">
@@ -483,7 +484,7 @@
         <div class="dialog-content queue-dialog">
             <div class="dialog-header">
                 <h2>Stacking Queue</h2>
-                <button type="button" class="close-button" onclick="closeQueueDialog()">×</button>
+                <button type="button" id="closeQueueDialogBtn" class="close-button">×</button>
             </div>
 
             <div class="queue-list-container">
@@ -496,7 +497,7 @@
             <div class="dialog-actions">
                 <button type="button" id="clearCompletedBtn" class="secondary">Clear Completed</button>
                 <button type="button" id="startBatchBtn" class="primary" disabled>Start Batch Processing</button>
-                <button type="button" onclick="closeQueueDialog()" class="secondary">Close</button>
+                <button type="button" id="closeQueueBtn" class="secondary">Close</button>
             </div>
         </div>
     </div>
