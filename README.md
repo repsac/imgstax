@@ -1,167 +1,146 @@
-# imgstax - Image Sequence Stacking Tool
+# imgstax Desktop - Sequential Image Stacking for Animations
 
-A specialized tool for creating **animated progressions** from image sequences using various stacking algorithms. imgstax processes sequential frames (from timelapse or video) to generate frame-by-frame stacked outputs, perfect for star trail animations, time-lapse effects, and visualizing motion over time.
+Create stunning **animated progressions** from image sequences with an intuitive desktop interface. imgstax Desktop processes sequential frames (from timelapse or video) to generate frame-by-frame stacked outputs, perfect for star trail animations, time-lapse effects, and visualizing motion over time.
 
 **What imgstax does:** Progressive stacking of sequential frames to create animations
 **What imgstax doesn't do:** Complex single-image stacking with calibration frames (use [StarStax](https://markus-enzweiler.de/software/starstax/), Photoshop, or Affinity Photo instead)
 
+---
+
+## Download
+
+### Latest Release (v2.1.0)
+
+- **macOS** (Apple Silicon): [Download DMG](https://github.com/repsac/imgstax/releases/latest)
+- **Windows** (x64): [Download MSI](https://github.com/repsac/imgstax/releases/latest)
+- **Linux**: [Build from source](CONTRIBUTING.md) (see [Building](#building-from-source) below)
+
+### System Requirements
+
+- **macOS**: 11.0 (Big Sur) or later, Apple Silicon (M1/M2/M3/M4)
+  - Intel Macs can run via Rosetta 2 (performance may vary)
+- **Windows**: Windows 10 (64-bit) or later
+- **Disk Space**: ~100 MB
+
+No Python installation required for pre-built applications!
+
+---
+
 ## Features
 
-### Core Functionality
-- **Progressive Sequential Stacking**: Creates animated sequences where each output frame is a stack of previous input frames
-- **Multiple Stacking Algorithms**: maximum, minimum, mean, median, standard deviation, summation, variance, and range
-- **Sliding Window Effects**: Limit trail length for moving window stacking (e.g., last 20 frames only)
-- **Trail Gradient**: Comet tail effect with progressive fade along the trail
-- **Fade Out**: Gradually fade trails at the end of sequences
-- **Frame Selection**: Start, stop, and step parameters for selective processing from your sequence
-- **Dry Run Mode**: Test operations without creating output files
+### Visual Interface
 
-### Enhanced Features (v2.0+)
-- **Type Hints**: Full type annotations for better IDE support
-- **pathlib Support**: Modern Path-based file handling
-- **Progress Bars**: Optional tqdm integration for visual progress (install with `pip install tqdm`)
-- **Image Validation**: Automatic dimension validation prevents runtime errors
-- **Quality Control**: Adjustable JPEG quality, PNG compression level, and TIFF compression formats
-- **Better Error Messages**: Comprehensive error reporting
-- **Modular Architecture**: Clean, maintainable codebase
-- **Configuration Validation**: Early detection of invalid parameters
-- **Recipe System**: YAML-based presets for common use cases (v2.1)
-- **Trail Gradient**: Weighted blending for comet tail effects (v2.1)
-- **Auto-prefix Exports**: Prevents accidental git commits of exports (v2.1)
+- **File Browser with Preview**: Browse directories and preview images before processing
+- **Real-time Progress**: Watch your stacks build with live progress and ETA
+- **Batch Queue System**: Add multiple jobs and process them sequentially
+- **Recipe System**: Built-in presets for stars, traffic, murmurations, and more
+- **12 Color Themes**: Choose from Light, Dark, Desert, Forest, Utah, Yosemite, and more
 
-## Installation
+![Main Window](docs/screenshots/imgstax-MainWindow.webp)
 
-### From Source
-```bash
-git clone https://github.com/edcaspersen/imgstax.git
-cd imgstax
-pip install -e .
-```
+### Recipe Editor
 
-### Dependencies
-```bash
-pip install -r requirements.txt
-```
+Create and manage custom recipes for your workflows:
 
-Required:
-- Python >= 3.8
-- numpy >= 1.20.0
-- Pillow >= 8.0.0
-- PyYAML >= 5.4.0 (for recipe system)
+- Create new recipes with custom settings
+- Edit existing user recipes
+- Preview all built-in and user recipes
+- Export recipes to share with others
+- Import recipes from YAML files
 
-Optional:
-- tqdm >= 4.60.0 (for progress bars)
+![Recipe Editor](docs/screenshots/imgstax-RecipeEditor.webp)
 
-## Usage
+![Recipe Preview](docs/screenshots/imgstax-RecipePreview.webp)
 
-### Basic Usage
+### Batch Processing Queue
 
-#### Desktop GUI Application
+Process multiple stacking jobs efficiently:
 
-imgstax includes a native desktop application built with Tauri, providing an intuitive graphical interface:
+- Add jobs to queue without clearing your current settings
+- Reorder jobs with drag-and-drop or up/down buttons
+- View status (pending, processing, completed, failed)
+- Re-queue completed jobs for re-processing
+- Export recipe with each batch export
 
-**Features:**
-- Visual file browser with image preview
-- Built-in recipe editor for creating and managing custom recipes
-- Real-time progress monitoring
-- Form-based parameter configuration
-- 12 color themes (including Light, Dark, Desert, Forest, Utah, Yosemite)
-- Persistent preferences
+![Stacking Queue](docs/screenshots/imgstax-StackingQueue.webp)
 
-**Running the GUI:**
-```bash
-cd desktop-app
-npm run dev
-```
+### Stacking Algorithms
 
-**Recipe Editor:**
-- Access via the recipe dropdown: "✎ Recipe Editor"
-- Create, edit, and delete custom recipes
-- User recipes stored in OS-appropriate config directories
-- Compatible with CLI recipes
+- **Maximum**: Star trails, light trails, fireworks
+- **Minimum**: Bird murmurations, dark objects in motion
+- **Mean**: Noise reduction, smooth motion blur
+- **Median**: Remove transient objects
 
-#### Command-Line Interface
+### Advanced Options
 
-```bash
-# Stack all images in a directory using maximum intensity
-python imgstax.py /path/to/images
+- **Trail Gradient**: Comet tail effect with progressive fade
+- **Trail Length**: Sliding window for moving effects
+- **Fade Out**: Graceful trail termination
+- **Frame Selection**: Start, end, and interval controls
+- **Format Options**: JPEG quality, PNG compression, TIFF compression
+- **Dry Run**: Test settings without creating files
 
-# Or using the module
-python -m imgstax /path/to/images
+---
 
-# Or using the installed command
-imgstax /path/to/images
-```
+## Quick Start
 
-### Common Examples
+### 1. Download and Install
 
-**Star Trail Photography (Maximum Stacking)**
-```bash
-imgstax /path/to/astro/images -o star_trails -s maximum
-```
+**macOS**:
+1. Download the `.dmg` file from [Releases](https://github.com/repsac/imgstax/releases/latest)
+2. Open the DMG and drag imgstax to Applications
+3. Right-click the app and select "Open" (first launch only, due to macOS Gatekeeper)
 
-**Noise Reduction (Mean Stacking)**
-```bash
-imgstax /path/to/images -o clean_output -s mean
-```
+![Install MacOS](docs/screenshots/imgstax-InstallMacOS.webp)
 
-**Limited Trail Length (Comet Effect)**
-```bash
-imgstax /path/to/images -o comet_trails -t 10 -s maximum
-```
+**Windows**:
+1. Download the `.msi` installer from [Releases](https://github.com/repsac/imgstax/releases/latest)
+2. Run the installer and follow the prompts
+3. Launch imgstax from the Start Menu
 
-**Fade Out Effect**
-```bash
-imgstax /path/to/images -o fading_trails -t 20 -f -s maximum
-```
+![Install Windows](docs/screenshots/imgstax-InstallWindows.webp)
 
-**Process Every Nth Frame**
-```bash
-imgstax /path/to/images --step 5 -o timelapse_stack
-```
+### 2. Select Your Images
 
-**Frame Range Selection**
-```bash
-imgstax /path/to/images --start 100 --stop 500 -o selected_range
-```
+1. Click "Browse..." next to Input Directory
+2. Navigate to your image sequence folder
+3. Preview images in the file browser on the left
 
-**High-Quality JPEG Output**
-```bash
-imgstax /path/to/images -q 98 -o high_quality
-```
+![File Browser](docs/screenshots/imgstax-FileBrowser.webp)
 
-**Comet Tail Effect (Trail Gradient)**
-```bash
-imgstax /path/to/images -t 20 -g -o comet_effect
-```
+### 3. Choose a Recipe (Optional)
 
-**Bird Murmurations**
-```bash
-imgstax /path/to/bird_images -s minimum -t 15 -g -o murmurations
-```
+Select from built-in presets:
+- **Stars**: Star trails with gradient (30-frame trail)
+- **Traffic**: Vehicle light trails (20-frame trail)
+- **Murmurations**: Dark objects in motion (15-frame trail)
+- **Timelapse**: Motion blur effects (5-frame trail)
+- **Fireworks**: Firework composites (10-frame trail)
+- **Noise Reduction**: Averaging for clean images
 
-## Recipes & Presets
+Or manually configure stacking mode, trail length, and other parameters.
 
-Recipes are pre-configured settings for common use cases. No need to memorize CLI arguments!
+### 4. Set Output Directory
 
-### Using Built-in Recipes
+Choose where your stacked images will be saved. Each export creates a timestamped directory with:
+- Stacked image sequence
+- `metadata.json` with settings used
+- `recipe.yaml` (if "Export recipe" is checked)
 
-```bash
-# Star trail photography
-python -m imgstax images/ --recipe stars
+### 5. Stack Images
 
-# Bird murmurations
-python -m imgstax images/ --recipe murmurations
+**Single Export**: Click "Stack Images" to process immediately
 
-# Traffic light trails
-python -m imgstax images/ --recipe traffic
+**Batch Processing**:
+1. Click "Add to Queue" to add the job
+2. Adjust settings and add more jobs
+3. Click "Open Queue" → "Start Batch Processing"
 
-# Time-lapse effects
-python -m imgstax images/ --recipe timelapse
+![Progress Dialog](docs/screenshots/imgstax-ProgressDialog.webp)
 
-# List all available recipes
-python -m imgstax --list-recipes
-```
+---
+
+## Using Recipes
 
 ### Built-in Recipes
 
@@ -174,362 +153,290 @@ python -m imgstax --list-recipes
 | **fireworks** | maximum | 10 | No | Firework composites |
 | **noise-reduction** | mean | 0 | No | Noise reduction averaging |
 
-### Overriding Recipe Settings
-
-CLI arguments override recipe defaults:
-
-```bash
-# Use stars recipe but with longer trails
-python -m imgstax images/ --recipe stars --trail-length 50
-
-# Use traffic recipe with different quality
-python -m imgstax images/ --recipe traffic -q 100
-```
-
 ### Creating Custom Recipes
 
-#### Using the Desktop GUI Recipe Editor
-
-The Desktop GUI includes a built-in Recipe Editor for creating and managing custom recipes:
-
 1. Select "✎ Recipe Editor" from the recipe dropdown
-2. Fill in the recipe details (name, description, settings)
-3. Click "Save Recipe" to create your custom recipe
-4. User recipes appear in the dropdown with a "(User)" suffix
+2. Fill in the recipe details:
+   - **Name**: Short descriptive name
+   - **Description**: What this recipe is for
+   - **Stacking Mode**: Algorithm to use
+   - **Trail Length**: Number of frames to stack
+   - **Gradient**: Enable comet tail effect
+   - **Other parameters**: Quality, fade out, etc.
+3. Click "Save Recipe"
+
+Your custom recipes appear in the dropdown with "(User)" suffix.
+
+### Recipe Storage
 
 User recipes are stored in OS-appropriate locations:
 - **macOS**: `~/Library/Application Support/imgstax-desktop/user_recipes/`
-- **Linux**: `~/.config/imgstax-desktop/user_recipes/`
 - **Windows**: `%APPDATA%/imgstax-desktop/user_recipes/`
+- **Linux**: `~/.config/imgstax-desktop/user_recipes/`
 
-#### Creating Recipes Manually (CLI)
+Recipes are YAML files compatible with the [CLI version](README-CLI.md).
 
-For CLI usage, create YAML files in `~/.imgstax/recipes/`:
+---
 
-```yaml
-name: "My Custom Recipe"
-description: "Custom settings for my workflow"
+## Batch Processing Workflow
 
-settings:
-  stacking: maximum
-  trail_length: 25
-  fade_out: true
-  quality: 92
-```
+The queue system enables efficient batch processing:
 
-Then use with:
-```bash
-python -m imgstax images/ --recipe my-custom
-```
+### Adding Jobs to Queue
 
-See [imgstax/recipes/README.md](imgstax/recipes/README.md) for complete recipe documentation.
+1. Configure your stacking parameters
+2. Click "Add to Queue"
+3. Output directory is cleared, but other settings remain
+4. Adjust output directory and click "Add to Queue" again
+5. Repeat for all your batch jobs
 
-## Command-Line Options
+### Managing the Queue
 
-```
-positional arguments:
-  input                 Input directory containing the image sequences
+- **Reorder**: Use ↑ ↓ buttons to change processing order
+- **Remove**: Click × to remove a job (except currently processing)
+- **Re-queue**: Completed jobs can be re-queued for reprocessing
+- **Clear Completed**: Remove all completed/failed/cancelled jobs
 
-options:
-  -h, --help            Show this help message and exit
-  -o, --output OUTPUT   Destination directory for generated images (default: timestamp)
-  --recipe RECIPE       Load settings from recipe/preset (e.g., 'stars', 'traffic')
-  --list-recipes        List all available recipes and exit
-  --dryrun              Testing only, does not create any files or folders
-  -p, --prefix PREFIX   File name prefix for stacked images (default: "stacked-")
-  -s, --stacking FUNC   Stacking function: maximum, minimum, mean, median, etc. (default: maximum)
-  -l, --logfile         Store all log output to file
-  --start N             Start frame index
-  --stop N              Stop frame index
-  --step N              Process every Nth frame
-  -t, --trail-length N  Limit the length of the trails
-  -f, --fade-out        Fade out the trails (requires trail-length)
-  -g, --trail-gradient  Apply gradient weighting for comet tail effect (requires trail-length)
-  -q, --quality N       JPEG quality 1-100 (default: 100)
-  --png-compress-level N    PNG compression level 0-9 (default: 6)
-                            0=no compression, 9=maximum compression
-  --tiff-compression TYPE   TIFF compression method (default: deflate)
-                            Choices: none, lzw, deflate, jpeg
-```
+### Processing the Queue
 
-## Stacking Functions
+1. Click "Open Queue" to review your jobs
+2. Click "Start Batch Processing"
+3. Each job processes sequentially with progress shown
+4. Cancel current job or entire queue during processing
 
-- `maximum` / `max`: Maximum intensity (best for star trails, light trails)
-- `mean`: Average intensity (best for noise reduction)
-- `median`: Median intensity (removes transient objects)
-- `minimum` / `min`: Minimum intensity (dark regions)
-- `standard-deviation`: Standard deviation (motion detection)
-- `summation`: Sum of all values (accumulation effects)
-- `variance`: Variance (statistical analysis)
-- `range`: Range between max and min (contrast analysis)
+![Queue Dialog](docs/screenshots/imgstax-QueueDialog.webp)
 
-## Advanced Features
+---
 
-### Trail Gradient (Comet Tail Effect)
+## Themes
 
-The `--trail-gradient` option creates a comet tail effect where the trail progressively fades along its length, with the newest frame at full intensity and older frames gradually decreasing.
+imgstax Desktop includes 12 built-in themes:
 
-**How it works:**
-- Uses exponential decay weighting (0.85 decay factor)
-- Newest frame: 100% intensity
-- Older frames: progressively reduced intensity
-- Creates smooth, natural-looking motion trails
+- **Light & Dark**: Classic high-contrast modes
+- **Desert**: Warm earth tones
+- **Forest**: Cool natural greens
+- **Utah**: Burnt orange and red rock colors
+- **Yosemite**: Sierra Nevada-inspired palette
+- And 6 more...
 
-**Best used with:**
-- Star trails for smooth gradient effect
-- Traffic light trails for realistic tails
-- Any motion where you want progressive fade
+Access themes from the ☰ menu → Theme.
 
-**Example:**
-```bash
-# Stars with smooth gradient trails
-imgstax star_images/ -t 30 -g --recipe stars
+![Themes](docs/screenshots/imgstax-InstallMacOS.webp)
 
-# Traffic with comet tail effect
-imgstax traffic_images/ -t 20 -g -s maximum
-```
+---
 
-**Note:** Requires `--trail-length` to be set (> 0).
+## Tips & Best Practices
+
+### Star Trail Photography
+
+1. Use the **stars** recipe as a starting point
+2. Enable **Trail Gradient** for smooth comet tails
+3. Set **Trail Length** to 20-40 frames depending on rotation speed
+4. Use **Maximum** stacking mode
+
+### Traffic Light Trails
+
+1. Use the **traffic** recipe
+2. Enable **Trail Gradient** for realistic light decay
+3. Set **Trail Length** to 15-25 frames
+4. Adjust **Quality** to 90-95 for final exports
+
+### Bird Murmurations or Swarms
+
+1. Use the **murmurations** recipe
+2. **Minimum** stacking mode isolates dark objects
+3. Enable **Trail Gradient** for natural motion blur
+4. Set **Trail Length** to match movement speed
+
+### Time-Lapse Effects
+
+1. Use the **timelapse** recipe
+2. **Mean** stacking creates smooth motion blur
+3. Short **Trail Length** (3-7 frames) for subtle blur
+4. Disable **Gradient** for even distribution
+
+---
 
 ## Supported Image Formats
 
-- JPEG (.jpg, .jpeg)
-- PNG (.png)
-- TIFF (.tif, .tiff)
+- **JPEG** (.jpg, .jpeg) - Adjustable quality (1-100)
+- **PNG** (.png) - Adjustable compression (0-9)
+- **TIFF** (.tif, .tiff) - Multiple compression options (none, lzw, deflate, jpeg)
 
-## Format-Specific Options
+All images in a sequence must have the same dimensions.
 
-### JPEG Quality
-Control JPEG output quality with `-q` or `--quality`:
+---
+
+## Command-Line Interface
+
+Power users can access the full CLI:
+
 ```bash
-imgstax images/ -q 95 -o high_quality_output
+imgstax /path/to/images -o output -s maximum -t 30 -g
 ```
 
-### PNG Compression
-Adjust PNG compression level with `--png-compress-level`:
+See [CLI Documentation](README-CLI.md) for complete command-line usage, programmatic API, and advanced options.
+
+---
+
+## Building from Source
+
+### Prerequisites
+
+- **macOS**: Xcode Command Line Tools, Rust, Node.js
+- **Windows**: Visual Studio Build Tools, Rust, Node.js
+- **Linux**: WebKit2GTK, build-essential, Rust, Node.js
+
+### Development Mode
+
 ```bash
-# Maximum compression (slower, smaller files)
-imgstax images/ --png-compress-level 9 -o compressed_output
+# Clone the repository
+git clone https://github.com/repsac/imgstax.git
+cd imgstax
 
-# No compression (faster processing)
-imgstax images/ --png-compress-level 0 -o fast_output
+# Install Python dependencies
+pip install -e .
+
+# Run the desktop app in dev mode
+cd desktop-app
+npm install
+npm run tauri dev
 ```
 
-Default is 6 (good balance). Range: 0-9.
+### Production Build
 
-### TIFF Compression
-Choose TIFF compression method with `--tiff-compression`:
 ```bash
-# Deflate compression (default, good balance)
-imgstax images/ --tiff-compression deflate -o output
+# Build the Python binary
+python build_binary.py
 
-# LZW compression (universal compatibility)
-imgstax images/ --tiff-compression lzw -o output
-
-# JPEG compression (lossy, smaller files)
-imgstax images/ --tiff-compression jpeg -q 85 -o output
-
-# No compression (fastest, largest files)
-imgstax images/ --tiff-compression none -o output
+# Build the desktop app
+cd desktop-app
+npm run tauri build
 ```
 
-Note: TIFF JPEG compression also uses the `--quality` parameter.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions and [BUILD.md](BUILD.md) for complete build documentation.
 
-## Programmatic Usage
+---
 
-```python
-from pathlib import Path
-from imgstax import StackConfig, stack
-import numpy
+## Performance & Troubleshooting
 
-# Basic configuration
-config = StackConfig(
-    input_path=Path('/path/to/images'),
-    output_path=Path('/path/to/output'),
-    stacking_func=numpy.amax,
-    stacking_name='maximum',
-    trail_length=15,
-    fade_out=True,
-    quality=95
-)
+### Performance Tips
 
-# Run stacking
-stack(config)
+- **Image Size**: Smaller images (1920x1080) process faster than 4K
+- **Trail Length**: Shorter trails use less memory
+- **Batch Processing**: Process overnight for large queues
+- **Dry Run**: Test settings without creating files first
 
-# Advanced: Bird murmurations with gradient
-config = StackConfig(
-    input_path=Path('/path/to/bird_images'),
-    output_path=Path('/path/to/output'),
-    stacking_func=numpy.amin,  # minimum for dark objects
-    stacking_name='minimum',
-    trail_length=15,
-    trail_gradient=True,  # Comet tail effect
-    fade_out=True,
-    quality=90
-)
+### Common Issues
 
-stack(config)
-```
+**"Image dimension mismatch" error**
+- All images must have identical dimensions
+- Check for different aspect ratios or resolutions
+- Remove any non-image files from input directory
 
-## Output
+**App won't open on macOS**
+- Right-click → Open (first launch only)
+- Go to System Settings → Privacy & Security to allow
+- macOS Gatekeeper blocks unsigned apps by default
 
-The tool generates:
-1. **Stacked Images**: Progressive sequence of stacked images
-2. **metadata.json**: Configuration and parameters used
-3. **output.log**: Optional detailed log file (use `-l` flag)
+**Windows Defender warning**
+- Click "More info" → "Run anyway"
+- The app is safe but not code-signed (yet)
+- You can submit false positive reports to Microsoft
 
-## Creating Videos from Stacked Images
+**Out of memory errors**
+- Use shorter trail lengths (`-t` parameter)
+- Process in batches using start/stop frame selection
+- Close other applications to free RAM
 
-After generating stacked images, you can compile them into a video using the utilities in the `utils/` directory.
+**Progress not showing/app frozen**
+- Large images take time per frame
+- Check activity monitor/task manager for CPU usage
+- App is likely processing normally
 
-**Quick Start**:
-```bash
-# Using Python (cross-platform)
-python utils/create_video.py output_directory
-
-# Using bash (macOS/Linux)
-./utils/create_video.sh output_directory
-
-# Using PowerShell (Windows)
-.\utils\create_video.ps1 -InputDirectory output_directory
-```
-
-**Advanced Examples**:
-```bash
-# 60 fps high-quality video
-python utils/create_video.py output_dir -o timelapse.mp4 -f 60 -q high
-
-# H.265 with 720p scaling for smaller file size
-python utils/create_video.py output_dir -c libx265 -s -1:720
-
-# WebM format for web use
-python utils/create_video.py output_dir -o video.webm -c libvpx-vp9
-```
-
-See [utils/README.md](utils/README.md) for complete documentation on video creation options, codecs, and workflows.
-
-## Project Structure
-
-```
-imgstax/
-├── imgstax/                 # Main package
-│   ├── __init__.py          # Package initialization
-│   ├── __main__.py          # Module entry point
-│   ├── cli.py               # Command-line interface
-│   ├── config.py            # Configuration dataclass
-│   ├── core.py              # Main stacking logic
-│   ├── image_utils.py       # Image processing utilities
-│   ├── file_utils.py        # File I/O operations
-│   ├── recipe_loader.py     # Recipe/preset system
-│   └── recipes/             # Built-in recipe presets
-│       ├── README.md        # Recipe documentation
-│       ├── stars.yaml       # Star trails recipe
-│       ├── murmurations.yaml # Bird murmurations recipe
-│       ├── traffic.yaml     # Traffic light trails recipe
-│       ├── timelapse.yaml   # Time-lapse recipe
-│       ├── fireworks.yaml   # Fireworks recipe
-│       └── noise-reduction.yaml # Noise reduction recipe
-├── utils/                   # Video creation utilities
-│   ├── create_video.py      # Cross-platform Python script
-│   ├── create_video.sh      # Bash script (macOS/Linux)
-│   ├── create_video.bat     # Batch script (Windows)
-│   ├── create_video.ps1     # PowerShell script (Windows)
-│   └── README.md            # Video utilities documentation
-├── imgstax.py               # Backwards-compatible entry point
-├── setup.py                 # Package installation
-├── requirements.txt         # Dependencies
-└── README.md                # This file
-```
+---
 
 ## Use Cases
 
-### When to Use imgstax
+### Perfect for imgstax Desktop
 
-**Perfect for:**
-- **Star Trail Animations**: Progressive stacking to create animated star trail sequences
-- **Time-Lapse Effects**: Stacking sequential frames to show motion accumulation over time
-- **Traffic Light Trails**: Animated progression of vehicle light trails
-- **Motion Visualization**: Creating frame-by-frame visualizations of movement
-- **Long Exposure Simulation**: Building up exposure across sequential frames
-- **Creative Sequential Art**: Artistic effects from time-based image sequences
+- ✅ Star trail **animations** (progressive stacking over time)
+- ✅ Traffic light trail **sequences**
+- ✅ Time-lapse **effects** with motion accumulation
+- ✅ Bird murmuration **progressions**
+- ✅ Firework **sequences**
+- ✅ Long exposure **simulations** from video frames
 
-**Requires:**
-- Sequential image frames (from timelapse camera or video extraction)
-- Frames taken in order over time
-- Goal is to create an animated progression or sequence
+### Better Tools for Other Tasks
 
-### When to Use Other Tools
+- ❌ **Single-frame perfection** with calibration → Use [StarStax](https://markus-enzweiler.de/software/starstax/), Photoshop, or Affinity Photo
+- ❌ **Deep sky astrophotography** with dark/flat/bias frames → Use DeepSkyStacker or PixInsight
+- ❌ **Video editing** or effects → Use DaVinci Resolve, Premiere, or Final Cut Pro
 
-**For complex astrophotography stacking with calibration frames** (dark frames, flat frames, bias frames), use specialized tools:
-- **[StarStax](https://markus-enzweiler.de/software/starstax/)**: Excellent free tool for star trail stacking
-- **Adobe Photoshop or Affinity Photo**: Advanced layering and calibration
-- **DeepSkyStacker**: Specialized for deep sky astrophotography with calibration frames
-- **PixInsight**: Professional-grade astronomical image processing
+imgstax focuses on **progressive sequential stacking for animations**, not single-image perfection.
 
-imgstax focuses on **progressive sequential stacking for animations**, not single-image perfection with calibration workflows.
-
-## Performance Tips
-
-1. **Image Size**: Smaller images process faster
-2. **Trail Length**: Shorter trails require less memory
-3. **Step Parameter**: Skip frames to speed up processing
-4. **Dry Run**: Test with `--dryrun` first
-
-## Troubleshooting
-
-**"Image dimension mismatch" error**
-- All images must have the same dimensions
-- Check for different aspect ratios or resolutions
-
-**Memory errors with large image sets**
-- Use smaller trail length (`-t`)
-- Process in batches with `--start` and `--stop`
-- Use step parameter to skip frames
-
-**No images found**
-- Ensure images have supported extensions
-- Check file permissions
-- Look for hidden files (starting with `.`)
+---
 
 ## Version History
 
 ### v2.1.0 (Current)
-- **Recipe System**: YAML-based presets for common use cases
-- **Trail Gradient**: Comet tail effect with exponential decay weighting
-- **Auto-prefix Exports**: Prevents accidental git commits with 'export_' prefix
-- **Enhanced Recipes**: Built-in presets for stars, murmurations, traffic, timelapse, fireworks, noise reduction
-- **Video Creation**: Cross-platform utilities for compiling stacked images into videos
-- **Improved Fade-Out**: Dynamic trail reduction in final frames
+- **Desktop GUI Application**: Native macOS and Windows support
+- **File Browser**: Visual directory browsing with image preview
+- **Recipe Editor**: Create and manage custom recipes
+- **Batch Queue System**: Process multiple jobs sequentially
+- **12 Color Themes**: Customizable interface
+- **Recipe System**: YAML-based presets (stars, traffic, murmurations, etc.)
+- **Trail Gradient**: Comet tail effect with exponential decay
+- **Enhanced Progress**: ETA and current filename display
 
 ### v2.0.0
 - Complete modular refactor
-- Added type hints throughout
-- Migrated to pathlib
-- Added progress bars (tqdm)
-- Improved error messages
-- Added quality control
-- Added image dimension validation
-- Configuration dataclass
+- Type hints and pathlib support
+- Progress bars (tqdm)
+- Quality control options
+- Image validation
 
 ### v1.0.0
-- Initial release
-- Basic stacking functionality
+- Initial CLI release
 
-## License
-
-MIT License - see file header for full text
+---
 
 ## Contributing
 
-Contributions welcome! Areas for future development:
-- Direct video input/output support (currently requires pre-extraction)
-- Parallel processing for speed improvements
-- Resume capability for interrupted processes
-- Additional stacking algorithms
-- Real-time preview mode
-- Automatic optimal parameter detection
+Contributions welcome! Areas for development:
 
-**Out of scope:** Calibration frame support (dark/flat/bias), alignment/registration, or complex single-image workflows. imgstax is intentionally focused on sequential progressive stacking for animations.
+**In Scope:**
+- Additional stacking algorithms
+- Performance optimizations
+- UI/UX improvements
+- Recipe templates for new use cases
+- Cross-platform bug fixes
+
+**Out of Scope:**
+- Calibration frame support (dark/flat/bias frames)
+- Image alignment/registration
+- Single-image workflows
+- Video codec implementation
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+---
+
+## Links
+
+- **GitHub**: [github.com/repsac/imgstax](https://github.com/repsac/imgstax)
+- **CLI Documentation**: [README-CLI.md](README-CLI.md)
+- **Build Guide**: [BUILD.md](BUILD.md)
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Releases**: [github.com/repsac/imgstax/releases](https://github.com/repsac/imgstax/releases)
+
+---
 
 ## Author
 
@@ -537,6 +444,8 @@ Ed Caspersen
 
 ## Acknowledgments
 
-- NumPy for array operations
-- Pillow for image processing
-- tqdm for progress visualization
+- **Tauri**: For the amazing desktop app framework
+- **NumPy**: Array operations and stacking algorithms
+- **Pillow**: Image processing
+- **PyYAML**: Recipe system
+- **tqdm**: Progress visualization

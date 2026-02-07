@@ -31,10 +31,74 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 }
 
 /// Get the Python interpreter path.
-/// In development, uses the hardcoded pyenv Python path.
+/// Searches for Python in multiple locations with priority order.
 /// In production, this won't be used as we'll have the bundled binary.
 fn get_python_path() -> String {
-    "/Users/edcaspersen/.pyenv/versions/3.12.8/bin/python3".to_string()
+    // 1. Check environment variable (explicit override)
+    if let Ok(path) = std::env::var("IMGSTAX_PYTHON_PATH") {
+        if Path::new(&path).exists() {
+            return path;
+        } else {
+            eprintln!("Warning: IMGSTAX_PYTHON_PATH is set but path doesn't exist: {}", path);
+        }
+    }
+
+    // 2. Check common locations first (prioritize user-installed Python over system Python)
+    // This is more reliable than 'which' in subprocess environments
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
+    let common_paths = vec![
+        format!("{}/.pyenv/shims/python3", home),  // Check pyenv first
+        "/opt/homebrew/bin/python3".to_string(),   // Then Homebrew
+        "/usr/local/bin/python3".to_string(),       // Then /usr/local
+        "/usr/bin/python3".to_string(),             // System Python last
+    ];
+
+    for path in &common_paths {
+        if Path::new(path).exists() {
+            return path.clone();
+        }
+    }
+
+    // 3. Try to find python3 in PATH as last resort
+    if let Ok(output) = Command::new("which").arg("python3").output() {
+        if output.status.success() {
+            if let Ok(path) = String::from_utf8(output.stdout) {
+                let path = path.trim().to_string();
+                if !path.is_empty() && Path::new(&path).exists() {
+                    return path;
+                }
+            }
+        }
+    }
+
+    // No Python found - provide helpful error message
+    panic!(
+        "\n\n\
+        ╔════════════════════════════════════════════════════════════════╗\n\
+        ║  ERROR: Python 3 interpreter not found                        ║\n\
+        ╚════════════════════════════════════════════════════════════════╝\n\
+        \n\
+        The imgstax desktop app requires Python 3 with imgstax installed\n\
+        for development mode.\n\
+        \n\
+        Solutions:\n\
+        \n\
+        1. Set the IMGSTAX_PYTHON_PATH environment variable:\n\
+           export IMGSTAX_PYTHON_PATH=/path/to/your/python3\n\
+        \n\
+        2. Ensure python3 is in your PATH:\n\
+           which python3  # Should return a valid path\n\
+        \n\
+        3. Install Python 3 in a standard location:\n\
+           - macOS: brew install python3\n\
+           - Linux: apt install python3 (or equivalent)\n\
+        \n\
+        After installing Python, make sure imgstax is installed:\n\
+           pip install -e .\n\
+        \n\
+        For more information, see the README.md\n\
+        \n"
+    );
 }
 
 /// Get the path to the imgstax executable.
@@ -97,6 +161,7 @@ struct StackConfig {
     quality: u32,
     png_compress_level: u32,
     tiff_compression: String,
+    export_recipe: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -624,6 +689,57 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
             output_dir: String::new(),
             error: Some("Stacking failed or was cancelled".to_string()),
         });
+    }
+
+    // Export recipe.yaml if requested
+    if config.export_recipe {
+        let recipe_path = Path::new(&output_abs).join("recipe.yaml");
+
+        // Build recipe YAML content
+        let mut recipe_content = format!(
+            "# imgstax Recipe\n\
+             # Generated automatically with exported images\n\
+             \n\
+             name: Exported Recipe\n\
+             description: Configuration used for this stacking export\n\
+             \n\
+             stacking: {}\n\
+             quality: {}\n\
+             png_compress_level: {}\n\
+             tiff_compression: {}\n",
+            config.stacking,
+            config.quality,
+            config.png_compress_level,
+            config.tiff_compression
+        );
+
+        // Add optional parameters if they were set
+        if let Some(start_frame) = config.start_frame {
+            recipe_content.push_str(&format!("start_frame: {}\n", start_frame));
+        }
+        if let Some(end_frame) = config.end_frame {
+            recipe_content.push_str(&format!("end_frame: {}\n", end_frame));
+        }
+        if config.frame_interval > 1 {
+            recipe_content.push_str(&format!("frame_interval: {}\n", config.frame_interval));
+        }
+        if config.trail_length > 0 {
+            recipe_content.push_str(&format!("trail_length: {}\n", config.trail_length));
+        }
+        if config.trail_gradient {
+            recipe_content.push_str(&format!("trail_gradient: true\n"));
+            recipe_content.push_str(&format!("gradient_decay: {}\n", config.gradient_decay));
+            recipe_content.push_str(&format!("gradient_plateau: {}\n", config.gradient_plateau));
+        }
+        if config.fade_out {
+            recipe_content.push_str("fade_out: true\n");
+        }
+
+        // Write recipe file
+        if let Err(e) = fs::write(&recipe_path, recipe_content) {
+            eprintln!("Warning: Failed to write recipe.yaml: {}", e);
+            // Don't fail the entire operation if recipe export fails
+        }
     }
 
     Ok(StackResult {
