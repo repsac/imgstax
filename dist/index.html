@@ -69,6 +69,8 @@
                     <option value="minimum">Minimum (darkest)</option>
                     <option value="mean">Mean (average)</option>
                     <option value="median">Median</option>
+                    <option value="standard-deviation">Standard Deviation</option>
+                    <option value="summation">Summation</option>
                 </select>
             </div>
 
@@ -237,6 +239,8 @@
                     <option value="minimum">Minimum (darkest)</option>
                     <option value="mean">Mean (average)</option>
                     <option value="median">Median</option>
+                    <option value="standard-deviation">Standard Deviation</option>
+                    <option value="summation">Summation</option>
                 </select>
             </div>
 
@@ -323,6 +327,8 @@
                     <option value="minimum">Minimum (darkest)</option>
                     <option value="mean">Mean (average)</option>
                     <option value="median">Median</option>
+                    <option value="standard-deviation">Standard Deviation</option>
+                    <option value="summation">Summation</option>
                 </select>
             </div>
 
@@ -477,7 +483,7 @@
         <div class="dialog-content queue-dialog">
             <div class="dialog-header">
                 <h2>Stacking Queue</h2>
-                <button class="close-button" onclick="closeQueueDialog()">×</button>
+                <button type="button" class="close-button" onclick="closeQueueDialog()">×</button>
             </div>
 
             <div class="queue-list-container">
@@ -488,9 +494,28 @@
             </div>
 
             <div class="dialog-actions">
-                <button id="clearCompletedBtn" class="secondary">Clear Completed</button>
-                <button id="startBatchBtn" class="primary" disabled>Start Batch Processing</button>
-                <button onclick="closeQueueDialog()" class="secondary">Close</button>
+                <button type="button" id="clearCompletedBtn" class="secondary">Clear Completed</button>
+                <button type="button" id="startBatchBtn" class="primary" disabled>Start Batch Processing</button>
+                <button type="button" onclick="closeQueueDialog()" class="secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cancel Confirmation Dialog -->
+    <div id="cancelConfirmDialog" class="dialog-overlay hidden">
+        <div class="dialog-content" style="max-width: 400px;">
+            <div class="dialog-header">
+                <h2>Cancel Processing</h2>
+            </div>
+
+            <div style="padding: 20px; text-align: center;">
+                <p style="margin-bottom: 20px;">Do you want to cancel the entire queue or just the current job?</p>
+            </div>
+
+            <div class="dialog-actions" style="justify-content: center; gap: 10px;">
+                <button type="button" id="cancelEntireQueueBtn" class="primary" style="background: #f44336;">Cancel Entire Queue</button>
+                <button type="button" id="cancelCurrentJobBtn" class="secondary">Skip Current Job</button>
+                <button type="button" id="cancelConfirmCloseBtn" class="secondary">Continue Processing</button>
             </div>
         </div>
     </div>

@@ -1,5 +1,4 @@
 import sys
-import json
 import logging
 import argparse
 import datetime
@@ -32,16 +31,17 @@ def setup_output(config: StackConfig) -> None:
         logger.info("Creating output path %s", config.output_path)
         config.output_path.mkdir(parents=True, exist_ok=True)
 
-    if config.output_path.exists():
-        metadata = config.output_path / 'metadata.json'
-        logger.info("Writing metadata to '%s'", metadata)
-        config_dict = config.to_dict()
-
-        for key, value in config_dict.items():
-            logger.debug("Config: %s=%s", key, value)
-
-        with open(metadata, 'w', encoding='utf-8') as filestream:
-            json.dump(config_dict, filestream, indent=4)
+    # Metadata.json removed - use recipe export instead
+    # if config.output_path.exists():
+    #     metadata = config.output_path / 'metadata.json'
+    #     logger.info("Writing metadata to '%s'", metadata)
+    #     config_dict = config.to_dict()
+    #
+    #     for key, value in config_dict.items():
+    #         logger.debug("Config: %s=%s", key, value)
+    #
+    #     with open(metadata, 'w', encoding='utf-8') as filestream:
+    #         json.dump(config_dict, filestream, indent=4)
 
     if config.logfile:
         logfile = config.output_path / 'output.log'

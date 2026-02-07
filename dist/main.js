@@ -759,16 +759,61 @@ async function executeStackingJob(config) {
     });
 }
 
-// Show cancel queue dialog
-function showCancelQueueDialog() {
+// Show cancel dialog (works for both batch and regular stacking)
+function showCancelDialog(isBatchProcessing = false) {
     return new Promise((resolve) => {
-        const response = confirm(
-            'Cancel the entire queue or just the current job?\n\n' +
-            'OK = Cancel entire queue\n' +
-            'Cancel = Skip current job, continue queue'
-        );
-        resolve(response);
+        const dialog = document.getElementById('cancelConfirmDialog');
+        const cancelEntireBtn = document.getElementById('cancelEntireQueueBtn');
+        const cancelCurrentBtn = document.getElementById('cancelCurrentJobBtn');
+        const continueBtn = document.getElementById('cancelConfirmCloseBtn');
+
+        // Update button text and visibility based on context
+        if (isBatchProcessing) {
+            cancelEntireBtn.textContent = 'Cancel Entire Queue';
+            cancelCurrentBtn.style.display = 'inline-block';
+        } else {
+            cancelEntireBtn.textContent = 'Cancel';
+            cancelCurrentBtn.style.display = 'none';
+        }
+
+        // Show dialog
+        dialog.classList.remove('hidden');
+
+        // Create handlers
+        const handleCancelEntire = () => {
+            dialog.classList.add('hidden');
+            cancelEntireBtn.removeEventListener('click', handleCancelEntire);
+            cancelCurrentBtn.removeEventListener('click', handleCancelCurrent);
+            continueBtn.removeEventListener('click', handleContinue);
+            resolve(true); // Cancel (entire queue if batch, current if regular)
+        };
+
+        const handleCancelCurrent = () => {
+            dialog.classList.add('hidden');
+            cancelEntireBtn.removeEventListener('click', handleCancelEntire);
+            cancelCurrentBtn.removeEventListener('click', handleCancelCurrent);
+            continueBtn.removeEventListener('click', handleContinue);
+            resolve(false); // Skip current job only (batch processing only)
+        };
+
+        const handleContinue = () => {
+            dialog.classList.add('hidden');
+            cancelEntireBtn.removeEventListener('click', handleCancelEntire);
+            cancelCurrentBtn.removeEventListener('click', handleCancelCurrent);
+            continueBtn.removeEventListener('click', handleContinue);
+            resolve(null); // Continue processing (don't cancel)
+        };
+
+        // Add event listeners
+        cancelEntireBtn.addEventListener('click', handleCancelEntire);
+        cancelCurrentBtn.addEventListener('click', handleCancelCurrent);
+        continueBtn.addEventListener('click', handleContinue);
     });
+}
+
+// Alias for batch processing (for clarity)
+function showCancelQueueDialog() {
+    return showCancelDialog(true);
 }
 
 // Start batch processing
@@ -800,9 +845,9 @@ async function startBatchProcessing() {
 
             if (success === 'cancelled') {
                 // Ask user: cancel current or entire queue?
-                const cancelAll = await showCancelQueueDialog();
+                const cancelChoice = await showCancelQueueDialog();
 
-                if (cancelAll) {
+                if (cancelChoice === true) {
                     // Cancel entire queue
                     item.status = 'cancelled';
                     // Mark all remaining pending as cancelled
@@ -813,9 +858,16 @@ async function startBatchProcessing() {
                     }
                     saveQueue();
                     break; // Exit batch processing loop
-                } else {
+                } else if (cancelChoice === false) {
                     // Cancel only current job, continue with queue
                     item.status = 'cancelled';
+                    saveQueue();
+                    continue;
+                } else {
+                    // Continue processing (null) - user changed their mind
+                    // Mark as failed since job was already interrupted
+                    item.status = 'failed';
+                    item.error = 'Processing interrupted by user';
                     saveQueue();
                     continue;
                 }
@@ -1596,11 +1648,11 @@ async function openOutputFolder() {
 }
 
 async function cancelStacking() {
-    // Show confirmation dialog
-    const confirmed = confirm('Are you sure you want to cancel the stacking operation?');
+    // Show custom confirmation dialog
+    const confirmed = await showCancelDialog(false);
 
-    if (!confirmed) {
-        return;
+    if (confirmed !== true) {
+        return; // User chose to continue processing or closed dialog
     }
 
     try {
