@@ -221,7 +221,7 @@ imgstax Desktop includes 12 built-in themes:
 
 Access themes from the ☰ menu → Theme.
 
-![Themes](docs/screenshots/imgstax-InstallMacOS.webp)
+![Themes](docs/screenshots/imgstax-Themes.webp)
 
 ---
 
