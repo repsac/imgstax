@@ -274,6 +274,15 @@ async function addToQueue() {
         return;
     }
 
+    // Validate that output directory is not the same as input directory
+    if (inputDirPath === outputDirPath) {
+        await showMessageDialog(
+            'Invalid Output Directory',
+            '<p>Output directory cannot be the same as the input directory.</p><p style="margin-top: 10px;">Please select a different output location to avoid overwriting your source images.</p>'
+        );
+        return;
+    }
+
     // Collect current form configuration
     const config = collectFormConfig();
 
@@ -519,6 +528,87 @@ async function updateQueueItem() {
     openQueueDialog();
 }
 
+// Reset all form fields to defaults
+async function resetForm() {
+    const confirmed = await customConfirm(
+        'Reset all settings to defaults? This will clear all form fields and cannot be undone.',
+        'Reset Form'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        console.log('Starting form reset...');
+
+        // Clear directories
+        document.getElementById('inputDir').value = '';
+        document.getElementById('outputDir').value = '';
+        inputDirPath = '';
+        outputDirPath = '';
+
+        // Clear validation messages
+        document.getElementById('inputValidation').textContent = '';
+        document.getElementById('inputValidation').className = 'validation-message';
+
+        // Reset to default preferences
+        document.getElementById('prefix').value = defaultPreferences.prefix;
+        document.getElementById('stacking').value = defaultPreferences.stacking;
+        document.getElementById('quality').value = defaultPreferences.quality;
+        document.getElementById('pngCompressLevel').value = defaultPreferences.pngCompressLevel;
+        document.getElementById('tiffCompression').value = defaultPreferences.tiffCompression;
+
+        // Reset recipe selection
+        const recipe = document.getElementById('recipe');
+        if (recipe) recipe.value = '';
+
+        // Reset Frame Selection fields
+        console.log('Resetting Frame Selection fields...');
+        const startFrame = document.getElementById('startFrame');
+        const endFrame = document.getElementById('endFrame');
+        const frameInterval = document.getElementById('frameInterval');
+        if (startFrame) startFrame.value = '';
+        if (endFrame) endFrame.value = '';
+        if (frameInterval) frameInterval.value = '1';
+
+        // Reset Trail Effects fields
+        console.log('Resetting Trail Effects fields...');
+        const trailLength = document.getElementById('trailLength');
+        const trailGradient = document.getElementById('trailGradient');
+        const gradientDecay = document.getElementById('gradientDecay');
+        const gradientPlateau = document.getElementById('gradientPlateau');
+        const fadeOut = document.getElementById('fadeOut');
+
+        if (trailLength) trailLength.value = '0';
+        if (trailGradient) trailGradient.checked = false;
+        if (gradientDecay) gradientDecay.value = '0.8';
+        if (gradientPlateau) gradientPlateau.value = '0';
+        if (fadeOut) fadeOut.checked = false;
+
+        // Reset other fields
+        const dryRun = document.getElementById('dryRun');
+        const exportRecipe = document.getElementById('exportRecipe');
+        if (dryRun) dryRun.checked = false;
+        if (exportRecipe) exportRecipe.checked = false;
+
+        // Clear file browser selection
+        const fileBrowserList = document.getElementById('fileBrowserList');
+        if (fileBrowserList) {
+            fileBrowserList.innerHTML = '';
+        }
+
+        console.log('Form reset complete');
+
+        // Update button states
+        updateStartButtonState();
+        updateQueueBadge();
+    } catch (error) {
+        console.error('Error during form reset:', error);
+        await showMessageDialog('Reset Error', `<p>An error occurred while resetting the form:</p><p style="margin-top: 10px; color: #f44336;">${error.message}</p>`);
+    }
+}
+
 // Cancel editing and restore UI
 function cancelEditing() {
     editingQueueItemId = null;
@@ -533,6 +623,9 @@ function cancelEditing() {
     // Clear form
     document.getElementById('outputDir').value = '';
     outputDirPath = '';
+
+    // Return to queue dialog
+    openQueueDialog();
 }
 
 // Render queue list
@@ -1061,6 +1154,26 @@ async function init() {
     startButton.addEventListener('click', startStacking);
     openOutputButton.addEventListener('click', openOutputFolder);
     cancelStackingButton.addEventListener('click', cancelStacking);
+    document.getElementById('resetFormBtn').addEventListener('click', resetForm);
+
+    // Add input validation for gradientDecay (enforce 0.0-1.0 range)
+    const gradientDecayInput = document.getElementById('gradientDecay');
+    if (gradientDecayInput) {
+        gradientDecayInput.addEventListener('input', function() {
+            const value = parseFloat(this.value);
+            if (value < 0) {
+                this.value = 0;
+            } else if (value > 1) {
+                this.value = 1;
+            }
+        });
+        gradientDecayInput.addEventListener('blur', function() {
+            const value = parseFloat(this.value);
+            if (isNaN(value) || value < 0 || value > 1) {
+                this.value = 0.8; // Reset to default if invalid
+            }
+        });
+    }
 
     // Queue system event listeners
     document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
@@ -1068,6 +1181,8 @@ async function init() {
     document.getElementById('viewQueueBtn').addEventListener('click', openQueueDialog);
     document.getElementById('startBatchBtn').addEventListener('click', startBatchProcessing);
     document.getElementById('clearCompletedBtn').addEventListener('click', clearCompleted);
+    document.getElementById('closeQueueBtn').addEventListener('click', closeQueueDialog);
+    document.getElementById('closeQueueDialogBtn').addEventListener('click', closeQueueDialog);
     document.getElementById('updateQueueBtn').addEventListener('click', updateQueueItem);
     document.getElementById('cancelEditBtn').addEventListener('click', cancelEditing);
 
@@ -1642,6 +1757,18 @@ async function browseOutputDirectory() {
         });
 
         if (selected) {
+            // Check if output directory is the same as input directory
+            if (inputDirPath && selected === inputDirPath) {
+                await showMessageDialog(
+                    'Invalid Output Directory',
+                    '<p>Output directory cannot be the same as the input directory.</p><p style="margin-top: 10px;">Please select a different location to avoid overwriting your source images.</p>'
+                );
+                outputDirPath = '';
+                outputDirEl.value = '';
+                updateStartButtonState();
+                return;
+            }
+
             outputDirPath = selected;
             outputDirEl.value = selected;
             updateStartButtonState();
@@ -1664,6 +1791,15 @@ async function startStacking() {
     // Check if batch processing is already running
     if (isBatchProcessing) {
         await showMessageDialog('Batch Processing Active', '<p>Batch processing is already running.</p><p style="margin-top: 10px;">Please wait or cancel the current batch.</p>');
+        return;
+    }
+
+    // Validate that output directory is not the same as input directory
+    if (inputDirPath && outputDirPath && inputDirPath === outputDirPath) {
+        await showMessageDialog(
+            'Invalid Output Directory',
+            '<p>Output directory cannot be the same as the input directory.</p><p style="margin-top: 10px;">Please select a different output location to avoid overwriting your source images.</p>'
+        );
         return;
     }
 
