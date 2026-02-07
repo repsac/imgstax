@@ -13,6 +13,20 @@ async function invokeWithTimeout(command, args = {}, timeoutMs = 30000) {
     ]);
 }
 
+// HTML escape utility to prevent XSS attacks
+// Escapes special HTML characters in user-provided strings
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') {
+        return unsafe;
+    }
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 let inputDirPath = '';
 let outputDirPath = '';
 let outputDirFromStack = '';
@@ -203,16 +217,15 @@ function saveQueue() {
 function updateQueueBadge() {
     const pendingCount = stackingQueue.filter(item => item.status === 'pending').length;
 
-    // Update "Open Queue" button
+    // Update "Open Queue" button - always enabled so users can view completed stacks
     const openQueueBtn = document.getElementById('openQueueBtn');
     if (openQueueBtn) {
         if (pendingCount > 0) {
             openQueueBtn.textContent = `Open Queue (${pendingCount})`;
-            openQueueBtn.disabled = false;
         } else {
             openQueueBtn.textContent = 'Open Queue';
-            openQueueBtn.disabled = true;
         }
+        openQueueBtn.disabled = false; // Always enabled
     }
 }
 
@@ -242,7 +255,8 @@ function collectFormConfig() {
         fade_out: document.getElementById('fadeOut').checked,
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
-        tiff_compression: document.getElementById('tiffCompression').value
+        tiff_compression: document.getElementById('tiffCompression').value,
+        export_recipe: document.getElementById('exportRecipe').checked
     };
 }
 
@@ -250,13 +264,13 @@ function collectFormConfig() {
 async function addToQueue() {
     // Validate input directory first
     if (!inputDirPath) {
-        alert('Please select an input directory');
+        await showMessageDialog('Input Required', '<p>Please select an input directory.</p>');
         return;
     }
 
     // Validate output directory
     if (!outputDirPath) {
-        alert('Please select an output directory');
+        await showMessageDialog('Output Required', '<p>Please select an output directory.</p>');
         return;
     }
 
@@ -266,7 +280,8 @@ async function addToQueue() {
     // Check queue size limit
     const pendingCount = stackingQueue.filter(i => i.status === 'pending').length;
     if (pendingCount >= 50) {
-        if (!confirm('You have 50 or more jobs in the queue. Adding more jobs may impact performance. Continue?')) {
+        const confirmed = await customConfirm('You have 50 or more jobs in the queue. Adding more jobs may impact performance. Continue?', 'Queue Warning');
+        if (!confirmed) {
             return;
         }
     }
@@ -277,7 +292,7 @@ async function addToQueue() {
     );
 
     if (duplicate) {
-        alert('This output directory is already in the queue. Please choose a different output directory.');
+        await showMessageDialog('Duplicate Output Directory', '<p>This output directory is already in the queue.</p><p style="margin-top: 10px;">Please choose a different output directory.</p>');
         return;
     }
 
@@ -299,7 +314,8 @@ async function addToQueue() {
     outputDirPath = '';
 
     // Show confirmation
-    alert(`Added to queue! ${stackingQueue.filter(i => i.status === 'pending').length} job(s) pending.`);
+    const pendingJobs = stackingQueue.filter(i => i.status === 'pending').length;
+    await showMessageDialog('Added to Queue', `<p>Job added successfully!</p><p style="margin-top: 10px;"><strong>${pendingJobs}</strong> job(s) pending.</p>`);
 }
 
 // Custom confirm dialog
@@ -340,7 +356,7 @@ async function removeQueueItem(id) {
     if (!item) return;
 
     if (item.status === 'processing') {
-        alert('Cannot remove a job that is currently processing');
+        await showMessageDialog('Cannot Remove', '<p>Cannot remove a job that is currently processing.</p>');
         return;
     }
 
@@ -374,6 +390,25 @@ function moveQueueItemDown(id) {
     }
 }
 
+// Re-queue a completed/failed/cancelled item
+async function requeueItem(id) {
+    const item = stackingQueue.find(i => i.id === id);
+    if (!item) return;
+
+    // Only allow re-queuing completed, failed, or cancelled items
+    if (item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled') {
+        await showMessageDialog('Cannot Re-queue', '<p>Can only re-queue completed, failed, or cancelled jobs.</p>');
+        return;
+    }
+
+    // Reset status to pending and clear error
+    item.status = 'pending';
+    item.error = null;
+
+    saveQueue();
+    renderQueueList();
+}
+
 // Clear completed jobs
 async function clearCompleted() {
     const completedCount = stackingQueue.filter(i =>
@@ -381,7 +416,7 @@ async function clearCompleted() {
     ).length;
 
     if (completedCount === 0) {
-        alert('No completed jobs to clear');
+        await showMessageDialog('No Completed Jobs', '<p>There are no completed jobs to clear.</p>');
         return;
     }
 
@@ -405,12 +440,12 @@ function closeQueueDialog() {
 }
 
 // Edit queue item
-function editQueueItem(id) {
+async function editQueueItem(id) {
     const item = stackingQueue.find(i => i.id === id);
     if (!item) return;
 
     if (item.status !== 'pending') {
-        alert('Only pending jobs can be edited');
+        await showMessageDialog('Cannot Edit', '<p>Only pending jobs can be edited.</p>');
         return;
     }
 
@@ -461,12 +496,12 @@ async function updateQueueItem() {
 
     // Validate
     if (!inputDirPath) {
-        alert('Please select an input directory');
+        await showMessageDialog('Input Required', '<p>Please select an input directory.</p>');
         return;
     }
 
     if (!outputDirPath) {
-        alert('Please select an output directory');
+        await showMessageDialog('Output Required', '<p>Please select an output directory.</p>');
         return;
     }
 
@@ -478,7 +513,7 @@ async function updateQueueItem() {
     cancelEditing();
 
     // Show success message
-    alert('Queue item updated successfully!');
+    await showMessageDialog('Queue Updated', '<p>Queue item updated successfully!</p>');
 
     // Open queue dialog to show updated item
     openQueueDialog();
@@ -521,30 +556,41 @@ function renderQueueList() {
         const inputDirName = item.config.input_path.split(/[\\/]/).pop() || item.config.input_path;
         const outputDirName = item.config.output_path.split(/[\\/]/).pop() || item.config.output_path;
 
+        // Escape all user-provided data to prevent XSS
+        const safeInputDir = escapeHtml(inputDirName);
+        const safeOutputDir = escapeHtml(outputDirName);
+        const safePrefix = escapeHtml(item.config.prefix);
+        const safeStacking = escapeHtml(item.config.stacking);
+        const safeError = item.error ? escapeHtml(item.error) : '';
+        const safeId = escapeHtml(item.id);
+
         return `
-            <div class="queue-item" data-id="${item.id}">
+            <div class="queue-item" data-id="${safeId}">
                 <div class="queue-item-status status-${item.status}">
                     <span class="status-icon"></span>
                 </div>
                 <div class="queue-item-details">
                     <div class="queue-item-primary">
-                        <strong>${inputDirName}</strong> → <strong>${outputDirName}</strong>
+                        <strong>${safeInputDir}</strong> → <strong>${safeOutputDir}</strong>
                     </div>
                     <div class="queue-item-secondary">
-                        Prefix: ${item.config.prefix} | Mode: ${item.config.stacking}
-                        ${item.error ? `<br><span style="color: #f44336;">Error: ${item.error}</span>` : ''}
+                        Prefix: ${safePrefix} | Mode: ${safeStacking}
+                        ${safeError ? `<br><span style="color: #f44336;">Error: ${safeError}</span>` : ''}
                     </div>
                 </div>
                 <div class="queue-item-actions">
                     ${item.status === 'pending' ? `
-                        <button class="icon-button edit-item" data-id="${item.id}" title="Edit">✎</button>
-                        <button class="icon-button move-up" data-id="${item.id}"
+                        <button class="icon-button edit-item" data-id="${safeId}" title="Edit">✎</button>
+                        <button class="icon-button move-up" data-id="${safeId}"
                                 ${index === 0 ? 'disabled' : ''} title="Move Up">↑</button>
-                        <button class="icon-button move-down" data-id="${item.id}"
+                        <button class="icon-button move-down" data-id="${safeId}"
                                 ${index === stackingQueue.length - 1 ? 'disabled' : ''} title="Move Down">↓</button>
                     ` : ''}
+                    ${(item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled') ? `
+                        <button class="icon-button requeue-item" data-id="${safeId}" title="Re-queue">↻</button>
+                    ` : ''}
                     ${item.status !== 'processing' ? `
-                        <button class="icon-button delete remove-item" data-id="${item.id}" title="Remove">×</button>
+                        <button class="icon-button delete remove-item" data-id="${safeId}" title="Remove">×</button>
                     ` : ''}
                 </div>
             </div>
@@ -585,6 +631,8 @@ function setupQueueEventDelegation() {
             moveQueueItemUp(id);
         } else if (button.classList.contains('move-down')) {
             moveQueueItemDown(id);
+        } else if (button.classList.contains('requeue-item')) {
+            requeueItem(id);
         } else if (button.classList.contains('remove-item')) {
             removeQueueItem(id);
         }
@@ -627,14 +675,32 @@ async function executeStackingJob(config) {
             cancelStackingButton.style.display = 'block';
             openOutputButton.style.display = 'none';
 
+            // Remove global cancel handler to avoid conflicts
+            cancelStackingButton.removeEventListener('click', cancelStacking);
+
             // Set up cancel handler
             const cancelHandler = async () => {
-                cancelled = true;
-                try {
-                    await invoke('cancel_stacking');
-                } catch (error) {
-                    console.error('Cancel error:', error);
+                // Show confirmation dialog for batch processing
+                const confirmed = await showCancelDialog(isBatchProcessing);
+
+                if (confirmed === true) {
+                    // User chose "Cancel Entire Queue"
+                    cancelled = 'entire';
+                    try {
+                        await invoke('cancel_stacking');
+                    } catch (error) {
+                        console.error('Cancel error:', error);
+                    }
+                } else if (confirmed === false) {
+                    // User chose "Skip Current Job"
+                    cancelled = 'current';
+                    try {
+                        await invoke('cancel_stacking');
+                    } catch (error) {
+                        console.error('Cancel error:', error);
+                    }
                 }
+                // else: User chose "Continue Processing" (null) - do nothing
             };
 
             cancelStackingButton.onclick = cancelHandler;
@@ -645,7 +711,7 @@ async function executeStackingJob(config) {
 
                 if (data.type === 'progress') {
                     // Track start time on first progress event
-                    if (startTime === null && data.current > 0) {
+                    if (startTime === null) {
                         startTime = Date.now();
                     }
 
@@ -656,7 +722,7 @@ async function executeStackingJob(config) {
                     let statusText = `Processing frame ${data.current} of ${data.total}...`;
 
                     // Calculate ETA if we have processed at least one frame
-                    if (startTime !== null && data.current > 0) {
+                    if (data.current > 0) {
                         const elapsed = (Date.now() - startTime) / 1000; // in seconds
                         const avgTimePerFrame = elapsed / data.current;
                         const framesRemaining = data.total - data.current;
@@ -666,6 +732,11 @@ async function executeStackingJob(config) {
                         if (etaText) {
                             statusText += ` (${etaText})`;
                         }
+                    }
+
+                    // Add filename if available
+                    if (data.file) {
+                        statusText += ` - ${data.file}`;
                     }
 
                     progressText.textContent = statusText;
@@ -682,8 +753,14 @@ async function executeStackingJob(config) {
 
             if (unlisten) unlisten();
 
-            if (cancelled) {
-                resolve('cancelled');
+            // Restore global cancel handler
+            cancelStackingButton.addEventListener('click', cancelStacking);
+            cancelStackingButton.onclick = null;
+
+            if (cancelled === 'entire') {
+                resolve('cancelled-entire');
+            } else if (cancelled === 'current') {
+                resolve('cancelled-current');
             } else if (result.success) {
                 resolve(true);
             } else {
@@ -699,8 +776,14 @@ async function executeStackingJob(config) {
 
             if (unlisten) unlisten();
 
-            if (cancelled) {
-                resolve('cancelled');
+            // Restore global cancel handler
+            cancelStackingButton.addEventListener('click', cancelStacking);
+            cancelStackingButton.onclick = null;
+
+            if (cancelled === 'entire') {
+                resolve('cancelled-entire');
+            } else if (cancelled === 'current') {
+                resolve('cancelled-current');
             } else {
                 resolve(false);
             }
@@ -708,15 +791,118 @@ async function executeStackingJob(config) {
     });
 }
 
-// Show cancel queue dialog
-function showCancelQueueDialog() {
+// Guard flag to prevent multiple simultaneous dialogs
+let cancelDialogOpen = false;
+
+// Show cancel dialog (works for both batch and regular stacking)
+function showCancelDialog(isBatchProcessing = false) {
     return new Promise((resolve) => {
-        const response = confirm(
-            'Cancel the entire queue or just the current job?\n\n' +
-            'OK = Cancel entire queue\n' +
-            'Cancel = Skip current job, continue queue'
-        );
-        resolve(response);
+        // Prevent opening dialog if already open
+        if (cancelDialogOpen) {
+            resolve(null);
+            return;
+        }
+
+        cancelDialogOpen = true;
+        const dialog = document.getElementById('cancelConfirmDialog');
+
+        // Clone buttons to remove all existing event listeners
+        const oldCancelEntireBtn = document.getElementById('cancelEntireQueueBtn');
+        const oldCancelCurrentBtn = document.getElementById('cancelCurrentJobBtn');
+        const oldContinueBtn = document.getElementById('cancelConfirmCloseBtn');
+
+        const cancelEntireBtn = oldCancelEntireBtn.cloneNode(true);
+        const cancelCurrentBtn = oldCancelCurrentBtn.cloneNode(true);
+        const continueBtn = oldContinueBtn.cloneNode(true);
+
+        oldCancelEntireBtn.replaceWith(cancelEntireBtn);
+        oldCancelCurrentBtn.replaceWith(cancelCurrentBtn);
+        oldContinueBtn.replaceWith(continueBtn);
+
+        // Update button text and visibility based on context
+        if (isBatchProcessing) {
+            cancelEntireBtn.textContent = 'Cancel Entire Queue';
+            cancelCurrentBtn.style.display = 'inline-block';
+        } else {
+            cancelEntireBtn.textContent = 'Cancel';
+            cancelCurrentBtn.style.display = 'none';
+        }
+
+        // Show dialog
+        dialog.classList.remove('hidden');
+
+        // Create handlers
+        const handleCancelEntire = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            dialog.classList.add('hidden');
+            cancelDialogOpen = false;
+            resolve(true); // Cancel (entire queue if batch, current if regular)
+        };
+
+        const handleCancelCurrent = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            dialog.classList.add('hidden');
+            cancelDialogOpen = false;
+            resolve(false); // Skip current job only (batch processing only)
+        };
+
+        const handleContinue = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            dialog.classList.add('hidden');
+            cancelDialogOpen = false;
+            resolve(null); // Continue processing (don't cancel)
+        };
+
+        // Add event listeners (once: true ensures they auto-remove after firing)
+        cancelEntireBtn.addEventListener('click', handleCancelEntire, { once: true });
+        cancelCurrentBtn.addEventListener('click', handleCancelCurrent, { once: true });
+        continueBtn.addEventListener('click', handleContinue, { once: true });
+    });
+}
+
+// Alias for batch processing (for clarity)
+function showCancelQueueDialog() {
+    return showCancelDialog(true);
+}
+
+// Show message dialog (for info messages, batch completion, etc.)
+function showMessageDialog(title, message) {
+    return new Promise((resolve) => {
+        const dialog = document.getElementById('messageDialog');
+        const titleElement = document.getElementById('messageDialogTitle');
+        const contentElement = document.getElementById('messageDialogContent');
+        const okBtn = document.getElementById('messageDialogOkBtn');
+
+        // Set content
+        titleElement.textContent = title;
+        contentElement.innerHTML = message; // Use innerHTML to support line breaks with <br>
+
+        // Show dialog
+        dialog.classList.remove('hidden');
+
+        // Create handler
+        const handleOk = () => {
+            dialog.classList.add('hidden');
+            okBtn.removeEventListener('click', handleOk);
+            resolve();
+        };
+
+        // Add event listener
+        okBtn.addEventListener('click', handleOk);
+
+        // ESC key support
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                dialog.classList.add('hidden');
+                okBtn.removeEventListener('click', handleOk);
+                document.removeEventListener('keydown', handleEsc);
+                resolve();
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
     });
 }
 
@@ -725,7 +911,12 @@ async function startBatchProcessing() {
     const pendingJobs = stackingQueue.filter(item => item.status === 'pending');
 
     if (pendingJobs.length === 0) {
-        alert('No pending jobs to process');
+        await showMessageDialog('No Pending Jobs', '<p>There are no pending jobs to process.</p>');
+        return;
+    }
+
+    const confirmed = await customConfirm(`Start processing ${pendingJobs.length} job(s)?`, 'Start Batch Processing');
+    if (!confirmed) {
         return;
     }
 
@@ -747,27 +938,22 @@ async function startBatchProcessing() {
             // Execute stacking with progress dialog
             const success = await executeStackingJob(item.config);
 
-            if (success === 'cancelled') {
-                // Ask user: cancel current or entire queue?
-                const cancelAll = await showCancelQueueDialog();
-
-                if (cancelAll) {
-                    // Cancel entire queue
-                    item.status = 'cancelled';
-                    // Mark all remaining pending as cancelled
-                    for (let j = i + 1; j < stackingQueue.length; j++) {
-                        if (stackingQueue[j].status === 'pending') {
-                            stackingQueue[j].status = 'cancelled';
-                        }
+            if (success === 'cancelled-entire') {
+                // User chose to cancel entire queue
+                item.status = 'cancelled';
+                // Mark all remaining pending as cancelled
+                for (let j = i + 1; j < stackingQueue.length; j++) {
+                    if (stackingQueue[j].status === 'pending') {
+                        stackingQueue[j].status = 'cancelled';
                     }
-                    saveQueue();
-                    break; // Exit batch processing loop
-                } else {
-                    // Cancel only current job, continue with queue
-                    item.status = 'cancelled';
-                    saveQueue();
-                    continue;
                 }
+                saveQueue();
+                break; // Exit batch processing loop
+            } else if (success === 'cancelled-current') {
+                // User chose to skip only current job, continue with queue
+                item.status = 'cancelled';
+                saveQueue();
+                continue;
             } else if (success) {
                 item.status = 'completed';
             } else {
@@ -791,7 +977,16 @@ async function startBatchProcessing() {
     const failed = stackingQueue.filter(i => i.status === 'failed').length;
     const cancelled = stackingQueue.filter(i => i.status === 'cancelled').length;
 
-    alert(`Batch processing complete!\n\nCompleted: ${completed}\nFailed: ${failed}\nCancelled: ${cancelled}`);
+    const summaryMessage = `
+        <p style="margin-bottom: 15px; font-size: 16px;">Batch processing complete!</p>
+        <div style="text-align: left; display: inline-block;">
+            <div style="margin: 8px 0;"><strong>Completed:</strong> ${completed}</div>
+            <div style="margin: 8px 0;"><strong>Failed:</strong> ${failed}</div>
+            <div style="margin: 8px 0;"><strong>Cancelled:</strong> ${cancelled}</div>
+        </div>
+    `;
+
+    await showMessageDialog('Batch Processing Complete', summaryMessage);
 }
 
 // ==================== End Queue Management System ====================
@@ -927,7 +1122,7 @@ async function init() {
                 if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
             } else {
                 console.error('Error loading user recipe:', result.error);
-                alert('Failed to load recipe: ' + result.error);
+                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
             }
         } else {
             // Built-in recipe or custom settings
@@ -1013,7 +1208,7 @@ async function init() {
         const data = event.payload;
         if (data.type === 'progress') {
             // Track start time on first progress event
-            if (regularStackingStartTime === null && data.current > 0) {
+            if (regularStackingStartTime === null) {
                 regularStackingStartTime = Date.now();
             }
 
@@ -1024,7 +1219,7 @@ async function init() {
             let statusText = `Processing frame ${data.current} of ${data.total}`;
 
             // Calculate ETA if we have processed at least one frame
-            if (regularStackingStartTime !== null && data.current > 0) {
+            if (data.current > 0) {
                 const elapsed = (Date.now() - regularStackingStartTime) / 1000; // in seconds
                 const avgTimePerFrame = elapsed / data.current;
                 const framesRemaining = data.total - data.current;
@@ -1221,7 +1416,7 @@ function closePreferences() {
     document.getElementById('preferencesDialog').style.display = 'none';
 }
 
-function savePreferences() {
+async function savePreferences() {
     const prefs = {
         prefix: document.getElementById('prefPrefix').value,
         stacking: document.getElementById('prefStacking').value,
@@ -1237,12 +1432,13 @@ function savePreferences() {
         closePreferences();
     } catch (error) {
         console.error('Failed to save preferences:', error);
-        alert('Failed to save preferences: ' + error.message);
+        await showMessageDialog('Error Saving Preferences', `<p>Failed to save preferences:</p><p style="margin-top: 10px; color: #f44336;">${error.message}</p>`);
     }
 }
 
-function resetPreferences() {
-    if (confirm('Reset all preferences to defaults?')) {
+async function resetPreferences() {
+    const confirmed = await customConfirm('Reset all preferences to defaults?', 'Reset Preferences');
+    if (confirmed) {
         localStorage.removeItem('userPreferences');
         applyPreferences(defaultPreferences);
 
@@ -1311,7 +1507,7 @@ async function loadFileList(dirPath) {
     } catch (error) {
         console.error('Error loading file list:', error);
         fileListTitleEl.textContent = 'Error loading files';
-        fileListEl.innerHTML = `<div class="file-list-empty">Error: ${error}</div>`;
+        fileListEl.innerHTML = `<div class="file-list-empty">Error: ${escapeHtml(String(error))}</div>`;
     }
 }
 
@@ -1373,10 +1569,13 @@ function renderFileList() {
 
     fileListEl.innerHTML = allFiles.map(file => {
         const isSelected = selectedIndices.has(file.index);
+        // Escape user-provided file data to prevent XSS
+        const safePath = escapeHtml(file.path);
+        const safeFilename = escapeHtml(file.filename);
         return `
-            <div class="file-item ${isSelected ? 'selected' : 'unselected'}" data-index="${file.index}" data-path="${file.path}">
+            <div class="file-item ${isSelected ? 'selected' : 'unselected'}" data-index="${file.index}" data-path="${safePath}">
                 <span class="file-item-index">${file.index}</span>
-                <span class="file-item-name">${file.filename}</span>
+                <span class="file-item-name">${safeFilename}</span>
             </div>
         `;
     }).join('');
@@ -1402,8 +1601,11 @@ function previewImage(imagePath) {
         const imageUrl = convertFileSrc(imagePath);
         console.log('Converted image URL:', imageUrl);
 
+        // Escape URL for safe HTML insertion (defense in depth)
+        const safeImageUrl = escapeHtml(imageUrl);
+
         previewContentEl.innerHTML = `
-            <img src="${imageUrl}" class="preview-image" alt="Preview" onerror="console.error('Image failed to load:', '${imageUrl}'); this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
+            <img src="${safeImageUrl}" class="preview-image" alt="Preview" onerror="this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
             <button class="maximize-button" id="maximizeButton">🔍 Maximize</button>
         `;
 
@@ -1461,7 +1663,7 @@ function updateStartButtonState() {
 async function startStacking() {
     // Check if batch processing is already running
     if (isBatchProcessing) {
-        alert('Batch processing is already running. Please wait or cancel the current batch.');
+        await showMessageDialog('Batch Processing Active', '<p>Batch processing is already running.</p><p style="margin-top: 10px;">Please wait or cancel the current batch.</p>');
         return;
     }
 
@@ -1481,7 +1683,8 @@ async function startStacking() {
         fade_out: document.getElementById('fadeOut').checked,
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
-        tiff_compression: document.getElementById('tiffCompression').value
+        tiff_compression: document.getElementById('tiffCompression').value,
+        export_recipe: document.getElementById('exportRecipe').checked
     };
 
     // Show progress dialog
@@ -1533,16 +1736,16 @@ async function openOutputFolder() {
         startButton.disabled = false;
     } catch (error) {
         console.error('Error opening folder:', error);
-        alert(`Failed to open folder: ${error}`);
+        await showMessageDialog('Error Opening Folder', `<p>Failed to open folder:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
 async function cancelStacking() {
-    // Show confirmation dialog
-    const confirmed = confirm('Are you sure you want to cancel the stacking operation?');
+    // Show custom confirmation dialog
+    const confirmed = await showCancelDialog(false);
 
-    if (!confirmed) {
-        return;
+    if (confirmed !== true) {
+        return; // User chose to continue processing or closed dialog
     }
 
     try {
@@ -1589,7 +1792,7 @@ async function openRecipeEditor(recipeId = null) {
         const result = await loadUserRecipeYaml(recipeId);
         if (!result.success) {
             console.error('Error loading recipe:', result.error);
-            alert('Failed to load recipe: ' + result.error);
+            await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
             return;
         }
 
@@ -1896,7 +2099,7 @@ settings:
         closeRecipeEditor();
     } catch (error) {
         console.error('Error saving recipe:', error);
-        alert('Failed to save recipe: ' + error);
+        await showMessageDialog('Error Saving Recipe', `<p>Failed to save recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -1907,7 +2110,8 @@ async function deleteRecipe() {
 
     const recipeName = document.getElementById('recipeName').value.trim() || 'this recipe';
 
-    if (!confirm(`Delete "${recipeName}"? This cannot be undone.`)) {
+    const confirmed = await customConfirm(`Delete "${recipeName}"? This cannot be undone.`, 'Delete Recipe');
+    if (!confirmed) {
         return;
     }
 
@@ -1917,7 +2121,7 @@ async function deleteRecipe() {
         closeRecipeEditor();
     } catch (error) {
         console.error('Error deleting recipe:', error);
-        alert('Failed to delete recipe: ' + error);
+        await showMessageDialog('Error Deleting Recipe', `<p>Failed to delete recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -1974,7 +2178,7 @@ settings:
         await openRecipeEditor(newRecipeId);
     } catch (error) {
         console.error('Error duplicating recipe:', error);
-        alert('Failed to duplicate recipe: ' + error);
+        await showMessageDialog('Error Duplicating Recipe', `<p>Failed to duplicate recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2041,11 +2245,11 @@ settings:
                 recipeId: currentEditingRecipeId,
                 exportPath: filePath
             });
-            alert(`Recipe exported successfully to:\n${filePath}`);
+            await showMessageDialog('Recipe Exported', `<p>Recipe exported successfully!</p><p style="margin-top: 10px; font-size: 12px; word-break: break-all;">${filePath}</p>`);
         }
     } catch (error) {
         console.error('Error exporting recipe:', error);
-        alert('Failed to export recipe: ' + error);
+        await showMessageDialog('Error Exporting Recipe', `<p>Failed to export recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2076,12 +2280,12 @@ async function importRecipe() {
             recipe = jsyaml.load(yamlContent);
         } catch (error) {
             console.error('Error parsing recipe YAML:', error);
-            alert('Failed to parse recipe file: Invalid YAML format');
+            await showMessageDialog('Invalid Recipe File', '<p>Failed to parse recipe file:</p><p style="margin-top: 10px; color: #f44336;">Invalid YAML format</p>');
             return;
         }
 
         if (!recipe || !recipe.settings) {
-            alert('Invalid recipe file format');
+            await showMessageDialog('Invalid Recipe File', '<p>The recipe file format is invalid.</p><p style="margin-top: 10px;">Please ensure the file contains valid recipe settings.</p>');
             return;
         }
 
@@ -2107,10 +2311,10 @@ async function importRecipe() {
         // Open the editor with the imported recipe for review
         await openRecipeEditor(newRecipeId);
 
-        alert(`Recipe "${recipeName}" imported successfully!`);
+        await showMessageDialog('Recipe Imported', `<p>Recipe "<strong>${recipeName}</strong>" imported successfully!</p>`);
     } catch (error) {
         console.error('Error importing recipe:', error);
-        alert('Failed to import recipe: ' + error);
+        await showMessageDialog('Error Importing Recipe', `<p>Failed to import recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2172,7 +2376,7 @@ async function openRecipePreview() {
         document.getElementById('recipePreviewDialog').style.display = 'block';
     } catch (error) {
         console.error('Error opening recipe preview:', error);
-        alert('Failed to open recipe preview: ' + error);
+        await showMessageDialog('Error Opening Preview', `<p>Failed to open recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2308,7 +2512,7 @@ async function updatePreviewContent(recipeId) {
 
             if (!result.success) {
                 console.error('Error loading user recipe:', result.error);
-                alert('Failed to load recipe: ' + result.error);
+                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
                 closeRecipePreview();
                 return;
             }
@@ -2359,7 +2563,7 @@ async function updatePreviewContent(recipeId) {
         }
     } catch (error) {
         console.error('Error loading recipe preview:', error);
-        alert('Failed to load recipe preview: ' + error);
+        await showMessageDialog('Error Loading Preview', `<p>Failed to load recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2431,7 +2635,7 @@ async function loadFromPreview() {
         closeRecipePreview();
     } catch (error) {
         console.error('Error loading recipe from preview:', error);
-        alert('Failed to load recipe: ' + error);
+        await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
     }
 }
 
@@ -2440,7 +2644,7 @@ async function editFromPreview() {
 
     // Only allow editing user recipes
     if (!currentPreviewRecipeId.startsWith('user:')) {
-        alert('Only user recipes can be edited. Built-in recipes are read-only.');
+        await showMessageDialog('Cannot Edit Built-in Recipe', '<p>Only user recipes can be edited.</p><p style="margin-top: 10px;">Built-in recipes are read-only.</p>');
         return;
     }
 
