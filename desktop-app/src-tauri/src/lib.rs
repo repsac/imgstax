@@ -603,19 +603,39 @@ fn cancel_stacking() -> Result<(), String> {
         {
             // On Unix systems (macOS, Linux), use kill command
             use std::process::Command;
-            let _ = Command::new("kill")
+            match Command::new("kill")
                 .arg("-TERM")
                 .arg(pid.to_string())
-                .output();
+                .output()
+            {
+                Ok(output) => {
+                    if !output.status.success() {
+                        eprintln!("kill failed: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to execute kill: {}", e);
+                }
+            }
         }
 
         #[cfg(windows)]
         {
-            // On Windows, use taskkill command
+            // On Windows, use taskkill command with /T to kill process tree
             use std::process::Command;
-            let _ = Command::new("taskkill")
-                .args(&["/PID", &pid.to_string(), "/F"])
-                .output();
+            match Command::new("taskkill")
+                .args(&["/PID", &pid.to_string(), "/T", "/F"])
+                .output()
+            {
+                Ok(output) => {
+                    if !output.status.success() {
+                        eprintln!("taskkill failed: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to execute taskkill: {}", e);
+                }
+            }
         }
 
         *process_lock = None;
