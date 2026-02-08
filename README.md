@@ -449,3 +449,17 @@ Ed Caspersen
 - **Pillow**: Image processing
 - **PyYAML**: Recipe system
 - **tqdm**: Progress visualization
+
+---
+
+## Support & Donations
+
+While I appreciate the thought of direct donations, I'd much rather see support go to these wonderful animal rescue organizations:
+
+- **[Funky Chicken Rescue](https://funkychickenrescue.com/donate)** - Rescuing and rehabilitating chickens and other farm birds
+- **[LTWC Wildlife Center](https://ltwc.org/donate)** - Wildlife rehabilitation and conservation
+- **[Suisun Wildlife Center](https://www.suisunwildlife.org)** - Wildlife rescue and environmental education
+- **[H Branch Donkey Rescue](https://www.hbranchdonkeyrescue.com)** - Sanctuary for rescued donkeys
+- **[Rancho Burro Donkey Sanctuary](https://ranchoburrodonkeysanctuary.org)** - Safe haven for abandoned and neglected donkeys
+
+These organizations do incredible work helping animals in need. If imgstax has been useful to you, please consider supporting them.
