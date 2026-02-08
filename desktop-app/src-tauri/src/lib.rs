@@ -6,6 +6,10 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
+// Windows-specific imports for hiding console window
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 // Global storage for the stacking process handle
 static STACKING_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<u32>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
@@ -44,28 +48,85 @@ fn get_python_path() -> String {
     }
 
     // 2. Check common locations first (prioritize user-installed Python over system Python)
-    // This is more reliable than 'which' in subprocess environments
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
-    let common_paths = vec![
-        format!("{}/.pyenv/shims/python3", home),  // Check pyenv first
-        "/opt/homebrew/bin/python3".to_string(),   // Then Homebrew
-        "/usr/local/bin/python3".to_string(),       // Then /usr/local
-        "/usr/bin/python3".to_string(),             // System Python last
-    ];
+    if cfg!(windows) {
+        // Windows-specific paths
+        let userprofile = std::env::var("USERPROFILE").unwrap_or_else(|_| String::from("C:\\Users"));
+        let appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| format!("{}\\AppData\\Local", userprofile));
 
-    for path in &common_paths {
-        if Path::new(path).exists() {
-            return path.clone();
+        let common_paths = vec![
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python312\\python.exe", userprofile),
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe", userprofile),
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python310\\python.exe", userprofile),
+            format!("{}\\Programs\\Python\\Python312\\python.exe", appdata),
+            format!("{}\\Programs\\Python\\Python311\\python.exe", appdata),
+            "C:\\Python312\\python.exe".to_string(),
+            "C:\\Python311\\python.exe".to_string(),
+            "C:\\Python310\\python.exe".to_string(),
+        ];
+
+        for path in &common_paths {
+            if Path::new(path).exists() {
+                return path.clone();
+            }
         }
-    }
 
-    // 3. Try to find python3 in PATH as last resort
-    if let Ok(output) = Command::new("which").arg("python3").output() {
-        if output.status.success() {
-            if let Ok(path) = String::from_utf8(output.stdout) {
-                let path = path.trim().to_string();
-                if !path.is_empty() && Path::new(&path).exists() {
-                    return path;
+        // Try to find python in PATH using 'where' on Windows
+        if let Ok(output) = Command::new("where").arg("python").output() {
+            if output.status.success() {
+                if let Ok(stdout) = String::from_utf8(output.stdout) {
+                    // where can return multiple paths, filter out Microsoft Store stub
+                    for line in stdout.lines() {
+                        let path = line.trim();
+                        if path.is_empty() {
+                            continue;
+                        }
+
+                        // Skip Microsoft Store Python stub which causes error 193
+                        if path.contains("WindowsApps") || path.contains("Microsoft\\WindowsApps") {
+                            continue;
+                        }
+
+                        // Verify this is actually an executable we can run
+                        if Path::new(path).exists() {
+                            // Test if it works by trying to get version
+                            if let Ok(test) = Command::new(path).arg("--version").output() {
+                                if test.status.success() {
+                                    return path.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Last resort: try "python" directly and hope the system resolves it correctly
+        // This will fail at runtime if Python isn't properly installed
+        return "python".to_string();
+    } else {
+        // Unix-style paths (macOS/Linux)
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
+        let common_paths = vec![
+            format!("{}/.pyenv/shims/python3", home),  // Check pyenv first
+            "/opt/homebrew/bin/python3".to_string(),   // Then Homebrew
+            "/usr/local/bin/python3".to_string(),       // Then /usr/local
+            "/usr/bin/python3".to_string(),             // System Python last
+        ];
+
+        for path in &common_paths {
+            if Path::new(path).exists() {
+                return path.clone();
+            }
+        }
+
+        // Try to find python3 in PATH as last resort
+        if let Ok(output) = Command::new("which").arg("python3").output() {
+            if output.status.success() {
+                if let Ok(path) = String::from_utf8(output.stdout) {
+                    let path = path.trim().to_string();
+                    if !path.is_empty() && Path::new(&path).exists() {
+                        return path;
+                    }
                 }
             }
         }
@@ -258,83 +319,61 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
         });
     }
 
-    // Call Python to count images
-    // Escape the path properly for Python
-    let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
+    // Use Rust to count and validate images instead of Python (safer, no crash risk)
+    let mut image_count = 0;
+    let mut formats = std::collections::HashSet::new();
+    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
 
-    let python_code = format!(r#"
-import sys
-import os
-import io
-import json
-from pathlib import Path
-# Redirect stdout to capture log messages
-real_stdout = sys.stdout
-sys.stdout = io.StringIO()
-# Import and run with stdout redirected
-sys.path.insert(0, os.getcwd())
-from imgstax.file_utils import find_input_images
-images = find_input_images(Path(r'{}'))
-# Detect unique file formats
-formats = set()
-for img in images:
-    ext = img.suffix.lower()
-    if ext in ['.jpg', '.jpeg']:
-        formats.add('jpeg')
-    elif ext == '.png':
-        formats.add('png')
-    elif ext in ['.tif', '.tiff']:
-        formats.add('tiff')
-# Restore stdout and print JSON result
-sys.stdout = real_stdout
-result = {{'count': len(images), 'formats': sorted(list(formats))}}
-print(json.dumps(result))
-"#, escaped_path);
+    match fs::read_dir(dir_path) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(ext) = path.extension() {
+                            let ext_lower = ext.to_string_lossy().to_lowercase();
+                            let ext_str = format!(".{}", ext_lower);
+                            if image_extensions.contains(&ext_str.as_str()) {
+                                image_count += 1;
+                                // Map to format names
+                                if ext_str == ".jpg" || ext_str == ".jpeg" {
+                                    formats.insert("jpeg".to_string());
+                                } else if ext_str == ".png" {
+                                    formats.insert("png".to_string());
+                                } else if ext_str == ".tif" || ext_str == ".tiff" {
+                                    formats.insert("tiff".to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(python_code)
-        .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+            if image_count == 0 {
+                return Ok(ValidationResult {
+                    valid: false,
+                    image_count: 0,
+                    error: Some("No valid images found in directory. Supported formats: JPG, PNG, TIFF".to_string()),
+                    detected_formats: vec![],
+                });
+            }
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Ok(ValidationResult {
-            valid: false,
-            image_count: 0,
-            error: Some(format!("Python error:\nstderr: {}\nstdout: {}", stderr, stdout)),
-            detected_formats: vec![],
-        });
-    }
+            let mut formats_vec: Vec<String> = formats.into_iter().collect();
+            formats_vec.sort();
 
-    let result_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    // Parse JSON result
-    #[derive(Deserialize)]
-    struct PythonResult {
-        count: usize,
-        formats: Vec<String>,
-    }
-
-    match serde_json::from_str::<PythonResult>(&result_str) {
-        Ok(result) => Ok(ValidationResult {
-            valid: true,
-            image_count: result.count,
-            error: None,
-            detected_formats: result.formats,
-        }),
-        Err(_) => {
-            // Fallback to old behavior if JSON parsing fails
-            let count: usize = result_str.parse().unwrap_or(0);
             Ok(ValidationResult {
                 valid: true,
-                image_count: count,
+                image_count,
                 error: None,
-                detected_formats: vec![],
+                detected_formats: formats_vec,
             })
         }
+        Err(e) => Ok(ValidationResult {
+            valid: false,
+            image_count: 0,
+            error: Some(format!("Failed to read directory: {}", e)),
+            detected_formats: vec![],
+        }),
     }
 }
 
@@ -347,47 +386,56 @@ struct FileInfo {
 
 #[tauri::command]
 fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
-    // Escape the path properly for Python
-    let escaped_path = path.replace("\\", "\\\\").replace("'", "\\'");
+    // Use Rust to get file list instead of Python (safer, no crash risk)
+    let dir_path = Path::new(&path);
+    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    let mut files = Vec::new();
 
-    let python_code = format!(r#"
-import sys
-import os
-import io
-import json
-from pathlib import Path
-# Redirect stdout to capture log messages
-real_stdout = sys.stdout
-sys.stdout = io.StringIO()
-# Import and run with stdout redirected
-sys.path.insert(0, os.getcwd())
-from imgstax.file_utils import find_input_images
-images = find_input_images(Path(r'{}'))
-# Restore stdout and print JSON
-sys.stdout = real_stdout
-files = []
-for idx, img in enumerate(images):
-    files.append({{"index": idx, "filename": img.name, "path": str(img)}})
-print(json.dumps(files))
-"#, escaped_path);
+    match fs::read_dir(dir_path) {
+        Ok(entries) => {
+            // Collect all image files
+            let mut image_paths: Vec<std::path::PathBuf> = Vec::new();
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let entry_path = entry.path();
+                    if entry_path.is_file() {
+                        if let Some(ext) = entry_path.extension() {
+                            let ext_lower = ext.to_string_lossy().to_lowercase();
+                            let ext_str = format!(".{}", ext_lower);
+                            if image_extensions.contains(&ext_str.as_str()) {
+                                image_paths.push(entry_path);
+                            }
+                        }
+                    }
+                }
+            }
 
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(python_code)
-        .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+            // Sort by filename (case-insensitive)
+            image_paths.sort_by(|a, b| {
+                let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                a_name.cmp(&b_name)
+            });
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python error: {}", stderr));
+            // Build FileInfo list
+            for (index, img_path) in image_paths.iter().enumerate() {
+                // Keep native path format - convertFileSrc() expects it
+                let path_str = img_path.to_string_lossy().to_string();
+
+                files.push(FileInfo {
+                    index,
+                    filename: img_path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    path: path_str,
+                });
+            }
+
+            Ok(files)
+        }
+        Err(e) => Err(format!("Failed to read directory: {}", e)),
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<FileInfo> = serde_json::from_str(&stdout)
-        .map_err(|e| format!("Failed to parse file list: {}", e))?;
-
-    Ok(files)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -647,11 +695,18 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     base_args.push("--progress-json".to_string());
 
     // Execute stacking with streaming output
-    let mut child = Command::new(&imgstax_cmd)
+    let mut command = Command::new(&imgstax_cmd);
+    command
         .args(&base_args)
         .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    // On Windows, prevent console window from appearing
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to execute stacking: {}", e))?;
 

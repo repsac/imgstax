@@ -9,7 +9,7 @@
     "build": "tauri build"
   },
   "keywords": [],
-  "author": "",
+  "author": "Ed Caspersen",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {

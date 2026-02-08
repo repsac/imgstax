@@ -20,8 +20,10 @@ from pathlib import Path
 def check_node():
     """Check if Node.js is installed."""
     try:
+        # On Windows, try both node and node.exe
+        node_cmd = 'node.exe' if sys.platform == 'win32' else 'node'
         result = subprocess.run(
-            ['node', '--version'],
+            [node_cmd, '--version'],
             capture_output=True,
             text=True,
             check=False
@@ -29,7 +31,19 @@ def check_node():
         if result.returncode == 0:
             return True
     except FileNotFoundError:
-        pass
+        # Try without .exe on Windows as fallback
+        if sys.platform == 'win32':
+            try:
+                result = subprocess.run(
+                    ['node', '--version'],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode == 0:
+                    return True
+            except FileNotFoundError:
+                pass
 
     print("Error: Node.js not found")
     print()
@@ -44,8 +58,9 @@ def check_cargo():
     """Check if Rust/Cargo is installed."""
     # Check in PATH first
     try:
+        cargo_cmd = 'cargo.exe' if sys.platform == 'win32' else 'cargo'
         result = subprocess.run(
-            ['cargo', '--version'],
+            [cargo_cmd, '--version'],
             capture_output=True,
             text=True,
             check=False
@@ -53,14 +68,28 @@ def check_cargo():
         if result.returncode == 0:
             return True
     except FileNotFoundError:
-        pass
+        # Try without .exe on Windows as fallback
+        if sys.platform == 'win32':
+            try:
+                result = subprocess.run(
+                    ['cargo', '--version'],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode == 0:
+                    return True
+            except FileNotFoundError:
+                pass
 
     # Try cargo in home directory
-    cargo_path = Path.home() / '.cargo' / 'bin' / 'cargo'
+    cargo_ext = '.exe' if sys.platform == 'win32' else ''
+    cargo_path = Path.home() / '.cargo' / 'bin' / f'cargo{cargo_ext}'
     if cargo_path.exists():
         # Add to PATH for this session
         cargo_bin = str(cargo_path.parent)
-        os.environ['PATH'] = f"{cargo_bin}:{os.environ.get('PATH', '')}"
+        path_sep = ';' if sys.platform == 'win32' else ':'
+        os.environ['PATH'] = f"{cargo_bin}{path_sep}{os.environ.get('PATH', '')}"
         return True
 
     print("Error: Rust/Cargo not found")
@@ -98,8 +127,10 @@ def main():
 
     # Launch desktop app
     try:
+        # On Windows, use npm.cmd instead of npm
+        npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
         result = subprocess.run(
-            ['npm', 'run', 'dev'],
+            [npm_cmd, 'run', 'dev'],
             cwd=desktop_app_dir,
             check=False
         )
