@@ -256,7 +256,7 @@ function collectFormConfig() {
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
         tiff_compression: document.getElementById('tiffCompression').value,
-        export_recipe: document.getElementById('exportRecipe').checked
+        export_recipe: document.getElementById('exportRecipeWithImages').checked
     };
 }
 
@@ -588,9 +588,9 @@ async function resetForm() {
 
         // Reset other fields
         const dryRun = document.getElementById('dryRun');
-        const exportRecipe = document.getElementById('exportRecipe');
+        const exportRecipeWithImages = document.getElementById('exportRecipeWithImages');
         if (dryRun) dryRun.checked = false;
-        if (exportRecipe) exportRecipe.checked = false;
+        if (exportRecipeWithImages) exportRecipeWithImages.checked = false;
 
         // Clear file browser selection
         const fileBrowserList = document.getElementById('fileBrowserList');
@@ -1712,8 +1712,11 @@ function previewImage(imagePath) {
         const filename = imagePath.split(/[/\\]/).pop();
         previewFilenameEl.textContent = filename;
 
+        // Normalize path: convertFileSrc expects forward slashes even on Windows
+        const normalizedPath = imagePath.replace(/\\/g, '/');
+
         // Convert file path to file URL for Tauri v2
-        const imageUrl = convertFileSrc(imagePath);
+        const imageUrl = convertFileSrc(normalizedPath);
         console.log('Converted image URL:', imageUrl);
 
         // Escape URL for safe HTML insertion (defense in depth)
@@ -1820,7 +1823,7 @@ async function startStacking() {
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
         tiff_compression: document.getElementById('tiffCompression').value,
-        export_recipe: document.getElementById('exportRecipe').checked
+        export_recipe: document.getElementById('exportRecipeWithImages').checked
     };
 
     // Show progress dialog
@@ -2876,10 +2879,22 @@ async function refreshRecipeDropdown() {
     }
 
     // Restore previous selection if still valid
+    const editRecipeBtn = document.getElementById('editRecipeBtn');
     if (currentValue) {
         const options = Array.from(recipeSelect.options);
         if (options.some(opt => opt.value === currentValue)) {
             recipeSelect.value = currentValue;
+        } else {
+            // Previous selection no longer exists, reset to "Custom settings..."
+            recipeSelect.value = '';
+            if (editRecipeBtn) {
+                editRecipeBtn.style.display = 'none';
+            }
+        }
+    } else {
+        // No previous selection, ensure Edit button is hidden
+        if (editRecipeBtn) {
+            editRecipeBtn.style.display = 'none';
         }
     }
 }

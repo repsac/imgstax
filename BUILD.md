@@ -235,21 +235,38 @@ codesign --deep --force --verify --verbose --sign "Developer ID Application: You
    ```
 
 **Building**:
+
+⚠️ **IMPORTANT**: Windows builds **must** use the MSVC toolchain and be run from a **Developer Command Prompt**.
+
 ```powershell
+# Open "Developer Command Prompt for VS 2022" or "x64 Native Tools Command Prompt for VS 2022" from Start Menu
+# Then navigate to the project:
+cd /d F:\REPOS\imgstax
+
+# Set MSVC toolchain for this project
+cd desktop-app
+rustup override set stable-msvc
+
+# Build
+cd ..
 python build_binary.py
 cd desktop-app
-npm install
 npm run tauri build
 ```
 
+**Why Developer Command Prompt?**
+- The MSVC toolchain requires Visual Studio environment variables
+- Regular PowerShell/CMD won't have the necessary compiler paths
+- The GNU toolchain (MinGW) has linking issues with Tauri on Windows
+
 **Output location**: `desktop-app/src-tauri/target/release/bundle/`
-- `.msi` installer in `msi/`
-- `.exe` installer in `nsis/` (if configured)
+- `.msi` installer in `msi/` (includes WebView2 runtime ~197MB)
 
 **Troubleshooting**:
-- If you get "MSVC not found" errors, restart your terminal after installing Visual Studio Build Tools
+- If you get "MSVC not found" errors, make sure you're in a Developer Command Prompt
+- If you get `cd` not working: use `cd /d F:\path` to change drives
 - Windows Defender may flag the build process - add an exclusion for your project directory
-- Run PowerShell as Administrator if you encounter permission issues
+- **Dev mode is not supported on Windows** - use production builds only (takes ~30 seconds)
 
 ### Linux
 **Binary format**: `imgstax-{arch}-unknown-linux-gnu`
