@@ -73,14 +73,20 @@ def build_binary():
         desktop_bin_dir = Path("desktop-app/src-tauri/binaries")
         desktop_bin_dir.mkdir(parents=True, exist_ok=True)
 
-        # Tauri target naming convention
+        # Tauri target naming convention (use Rust target triples)
+        # Map Python's platform.machine() to Rust target arch
+        rust_arch = arch
+        if arch == "arm64":
+            rust_arch = "aarch64"  # macOS Apple Silicon
+        elif arch == "amd64" or arch == "x86_64":
+            rust_arch = "x86_64"
 
         if system == "darwin":
-            target_name = f"imgstax-{arch}-apple-darwin"
+            target_name = f"imgstax-{rust_arch}-apple-darwin"
         elif system == "windows":
-            target_name = f"imgstax-{arch}-pc-windows-msvc.exe"
+            target_name = f"imgstax-{rust_arch}-pc-windows-msvc.exe"
         elif system == "linux":
-            target_name = f"imgstax-{arch}-unknown-linux-gnu"
+            target_name = f"imgstax-{rust_arch}-unknown-linux-gnu"
         else:
             target_name = "imgstax"
 
