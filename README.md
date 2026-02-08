@@ -89,7 +89,13 @@ Process multiple stacking jobs efficiently:
 **macOS**:
 1. Download the `.dmg` file from [Releases](https://github.com/repsac/imgstax/releases/latest)
 2. Open the DMG and drag imgstax to Applications
-3. Right-click the app and select "Open" (first launch only, due to macOS Gatekeeper)
+3. **First launch only:** The app may be blocked by macOS Gatekeeper. To unblock:
+   - Open Terminal
+   - Type: `sudo xattr -rd com.apple.quarantine` (don't press Enter yet)
+   - Drag imgstax.app from Applications into Terminal (adds the path)
+   - Press Enter and enter your password when prompted
+
+   *Note: Right-click → Open sometimes works but is not always reliable.*
 
 ![Install MacOS](docs/screenshots/imgstax-InstallMacOS.webp)
 

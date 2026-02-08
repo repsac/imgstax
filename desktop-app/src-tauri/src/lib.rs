@@ -162,33 +162,27 @@ fn get_python_path() -> String {
     );
 }
 
-/// Get the path to the imgstax executable.
-/// In development, uses the system Python with -m imgstax.
-/// In production, uses the bundled imgstax binary.
-fn get_imgstax_command() -> (String, Vec<String>) {
-    // Check if we have a bundled binary
+/// Check if we're running in production mode (bundled binary available).
+/// Returns true if sidecar binary exists, false if we should use development mode.
+fn has_bundled_binary() -> bool {
+    // Check if sidecar binary exists by looking in expected location
     let resource_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|p| p.to_path_buf()));
 
     if let Some(dir) = resource_dir {
-        // Look for bundled binary in same directory as executable
+        // Tauri strips platform suffixes when bundling external binaries
+        // Source: binaries/imgstax-{arch}-{os} → Bundled: imgstax (or imgstax.exe on Windows)
         let binary_name = if cfg!(target_os = "windows") {
             "imgstax.exe"
         } else {
             "imgstax"
         };
 
-        let bundled_path = dir.join(binary_name);
-        if bundled_path.exists() {
-            // Production: use bundled binary
-            return (bundled_path.to_string_lossy().to_string(), vec![]);
-        }
+        return dir.join(binary_name).exists();
     }
 
-    // Development: use Python with -m imgstax
-    // This allows for rapid iteration without rebuilding the binary
-    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+    false
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -659,11 +653,8 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
             .unwrap_or_else(|_| config.output_path.clone())
     };
 
-    // Get imgstax command (bundled binary or Python in dev)
-    let (imgstax_cmd, mut base_args) = get_imgstax_command();
-
-    // Build command arguments
-    base_args.extend(vec![
+    // Build command arguments (same for both sidecar and Python)
+    let mut base_args = vec![
         config.input_path.clone(),
         "-o".to_string(),
         config.output_path.clone(),
@@ -677,7 +668,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         config.png_compress_level.to_string(),
         "--tiff-compression".to_string(),
         config.tiff_compression.clone(),
-    ]);
+    ];
 
     if let Some(start_frame) = config.start_frame {
         base_args.push("--start-frame".to_string());
@@ -714,11 +705,35 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     // Add progress JSON flag for GUI
     base_args.push("--progress-json".to_string());
 
-    // Execute stacking with streaming output
-    let mut command = Command::new(&imgstax_cmd);
+    // Get the command to execute (bundled binary or Python)
+    let (cmd_path, args) = if has_bundled_binary() {
+        // Production: use bundled binary
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|p| p.to_path_buf()))
+            .ok_or("Failed to get executable directory")?;
+
+        // Tauri strips platform suffixes when bundling
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
+        } else {
+            "imgstax"
+        };
+
+        let binary_path = exe_dir.join(binary_name);
+        (binary_path.to_string_lossy().to_string(), base_args)
+    } else {
+        // Development: use Python with -m imgstax
+        let python_path = get_python_path();
+        let mut python_args = vec!["-m".to_string(), "imgstax".to_string()];
+        python_args.extend(base_args);
+        (python_path, python_args)
+    };
+
+    // Execute command with std::process::Command
+    let mut command = Command::new(&cmd_path);
     command
-        .args(&base_args)
-        .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -728,7 +743,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
 
     let mut child = command
         .spawn()
-        .map_err(|e| format!("Failed to execute stacking: {}", e))?;
+        .map_err(|e| format!("Failed to execute stacking: {} (command: {})", e, cmd_path))?;
 
     // Store the process ID for potential cancellation
     let pid = child.id();
