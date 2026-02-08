@@ -734,7 +734,6 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     let mut command = Command::new(&cmd_path);
     command
         .args(&args)
-        .current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
