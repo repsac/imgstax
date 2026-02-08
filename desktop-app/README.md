@@ -87,8 +87,8 @@ npm run dev
 npm run build
 
 # Build output locations:
-# macOS:   src-tauri/target/release/bundle/macos/imgstax.app
-# Windows: src-tauri/target/release/bundle/msi/imgstax.msi
+# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.1.0_x64.dmg
+# Windows: src-tauri/target/release/bundle/msi/imgstax_2.1.0_x64_en-US.msi
 # Linux:   src-tauri/target/release/bundle/appimage/imgstax.AppImage
 ```
 
@@ -116,7 +116,7 @@ npm run build
 
 This creates:
 - **macOS**: `.app` bundle and `.dmg` installer
-- **Windows**: `.exe` installer and `.msi` package
+- **Windows**: `.msi` installer (includes WebView2 runtime)
 - **Linux**: `.AppImage` and `.deb` package
 
 The built app includes everything needed - no Python or dependencies required for end users.
