@@ -171,29 +171,15 @@ fn has_bundled_binary() -> bool {
         .and_then(|path| path.parent().map(|p| p.to_path_buf()));
 
     if let Some(dir) = resource_dir {
-        // On macOS, check for the platform-specific binary name
-        // Tauri places sidecars in the same directory as the main executable
-        #[cfg(target_os = "macos")]
-        {
-            let binary_name = if cfg!(target_arch = "aarch64") {
-                "imgstax-aarch64-apple-darwin"
-            } else {
-                "imgstax-x86_64-apple-darwin"
-            };
-            return dir.join(binary_name).exists();
-        }
+        // Tauri strips platform suffixes when bundling external binaries
+        // Source: binaries/imgstax-{arch}-{os} → Bundled: imgstax (or imgstax.exe on Windows)
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
+        } else {
+            "imgstax"
+        };
 
-        #[cfg(target_os = "windows")]
-        {
-            let binary_name = "imgstax-x86_64-pc-windows-msvc.exe";
-            return dir.join(binary_name).exists();
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            let binary_name = "imgstax-x86_64-unknown-linux-gnu";
-            return dir.join(binary_name).exists();
-        }
+        return dir.join(binary_name).exists();
     }
 
     false
@@ -727,18 +713,12 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
             .and_then(|path| path.parent().map(|p| p.to_path_buf()))
             .ok_or("Failed to get executable directory")?;
 
-        #[cfg(target_os = "macos")]
-        let binary_name = if cfg!(target_arch = "aarch64") {
-            "imgstax-aarch64-apple-darwin"
+        // Tauri strips platform suffixes when bundling
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
         } else {
-            "imgstax-x86_64-apple-darwin"
+            "imgstax"
         };
-
-        #[cfg(target_os = "windows")]
-        let binary_name = "imgstax-x86_64-pc-windows-msvc.exe";
-
-        #[cfg(target_os = "linux")]
-        let binary_name = "imgstax-x86_64-unknown-linux-gnu";
 
         let binary_path = exe_dir.join(binary_name);
         (binary_path.to_string_lossy().to_string(), base_args)
