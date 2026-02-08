@@ -123,6 +123,22 @@ The built app includes everything needed - no Python or dependencies required fo
 
 ## Troubleshooting
 
+### macOS: "imgstax.app is damaged and can't be opened"
+
+This occurs when macOS Gatekeeper blocks unsigned applications. To fix:
+
+1. Open Terminal
+2. Type the following command (don't press Enter yet):
+   ```bash
+   sudo xattr -rd com.apple.quarantine
+   ```
+3. Drag the imgstax.app file from Finder into the Terminal window (this adds the path)
+4. Press Enter
+5. Enter your password when prompted (you won't see it as you type)
+6. Try opening the app again
+
+**Note:** Right-click → Open sometimes works but is not always reliable. The Terminal method above is the most dependable solution.
+
 ### Rust/Cargo not found
 Ensure cargo is in your PATH:
 ```bash
