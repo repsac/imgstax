@@ -56,7 +56,15 @@ def build_binary():
 
     print("\n✓ Build successful!")
 
-    binary_path = dist_dir / "imgstax"
+    # PyInstaller binary naming
+    import platform
+    system = platform.system().lower()
+    arch = platform.machine().lower()
+
+    # Check for binary with correct extension
+    binary_name = "imgstax.exe" if system == "windows" else "imgstax"
+    binary_path = dist_dir / binary_name
+
     if binary_path.exists():
         print(f"Binary created at: {binary_path}")
         print(f"Size: {binary_path.stat().st_size / 1024 / 1024:.2f} MB")
@@ -65,10 +73,7 @@ def build_binary():
         desktop_bin_dir = Path("desktop-app/src-tauri/binaries")
         desktop_bin_dir.mkdir(parents=True, exist_ok=True)
 
-        # PyInstaller binary naming for Tauri
-        import platform
-        system = platform.system().lower()
-        arch = platform.machine().lower()
+        # Tauri target naming convention
 
         if system == "darwin":
             target_name = f"imgstax-{arch}-apple-darwin"

@@ -49,7 +49,19 @@ def find_input_images(input_path: Path) -> List[Path]:
             f"Supported formats: {supported}"
         )
 
-    images.sort()
+    try:
+        # Sort by filename (string) to avoid path comparison issues on Windows
+        images.sort(key=lambda p: p.name.lower())
+    except Exception as e:
+        logger.error("Error sorting images: %s", e)
+        # Fallback: try simple sort
+        try:
+            images.sort()
+        except Exception as e2:
+            logger.error("Fallback sort also failed: %s", e2)
+            # Last resort: no sorting, just use directory order
+            logger.warning("Using unsorted image list")
+
     logger.info("Found %d valid images in '%s'", len(images), input_path)
     return images
 

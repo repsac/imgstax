@@ -228,4 +228,5 @@ test_*/
 
 #Ignore build binaries
 dist/imgstax
+dist/imgstax.exe
 desktop-app/src-tauri/binaries/

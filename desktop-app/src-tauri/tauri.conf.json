@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "imgstax",
   "version": "2.1.0",
-  "identifier": "com.therepsac.imgstax",
+  "identifier": "com.edcaspersen.imgstax",
   "build": {
     "frontendDist": "../../dist"
   },
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: https://tauri.localhost https://asset.localhost; img-src 'self' https://asset.localhost asset: data:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self' ipc: https://tauri.localhost https://asset.localhost http://asset.localhost; img-src 'self' https://asset.localhost http://asset.localhost asset: data:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]
@@ -29,13 +29,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
+    }
   }
 }
