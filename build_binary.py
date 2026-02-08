@@ -40,7 +40,7 @@ def build_binary():
         "--onefile",  # Single executable
         "--console",  # CLI app
         "--add-data", "imgstax/recipes:imgstax/recipes",  # Include recipes
-        "imgstax/cli.py",  # Entry point
+        "imgstax/__main__.py",  # Entry point (use __main__.py for proper package imports)
     ]
 
     print("Building imgstax binary with PyInstaller...")
