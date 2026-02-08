@@ -2879,10 +2879,22 @@ async function refreshRecipeDropdown() {
     }
 
     // Restore previous selection if still valid
+    const editRecipeBtn = document.getElementById('editRecipeBtn');
     if (currentValue) {
         const options = Array.from(recipeSelect.options);
         if (options.some(opt => opt.value === currentValue)) {
             recipeSelect.value = currentValue;
+        } else {
+            // Previous selection no longer exists, reset to "Custom settings..."
+            recipeSelect.value = '';
+            if (editRecipeBtn) {
+                editRecipeBtn.style.display = 'none';
+            }
+        }
+    } else {
+        // No previous selection, ensure Edit button is hidden
+        if (editRecipeBtn) {
+            editRecipeBtn.style.display = 'none';
         }
     }
 }
