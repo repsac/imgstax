@@ -69,8 +69,8 @@ class StackConfig:
         if self.trail_gradient and self.trail_length == 0:
             raise ValueError("Trail gradient requires trail_length > 0")
 
-        if not 0.0 < self.gradient_decay <= 1.0:
-            raise ValueError(f"Gradient decay must be between 0.0 and 1.0, got: {self.gradient_decay}")
+        if not 0.0 <= self.gradient_decay <= 1.0:
+            raise ValueError(f"Gradient decay must be between 0.0 and 1.0 (inclusive), got: {self.gradient_decay}")
 
         if self.gradient_plateau < 0:
             raise ValueError(f"Gradient plateau must be non-negative, got: {self.gradient_plateau}")
