@@ -164,6 +164,13 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label for="postProcess">Post-Process (Optional)</label>
+                <select id="postProcess">
+                    <option value="">None</option>
+                </select>
+            </div>
+
                 <div class="button-group">
                     <button id="startButton" class="primary" disabled>Start Stacking</button>
                     <button id="addToQueueBtn" class="secondary" disabled>Add to Queue</button>
@@ -390,6 +397,16 @@
                     <label for="recipeFadeOut">Fade Out</label>
                 </div>
             </div>
+
+            <div class="pref-group">
+                <label for="recipePostProcess">Post-Process (Optional)</label>
+                <select id="recipePostProcess">
+                    <option value="">None</option>
+                </select>
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    Automatically run a post-processing recipe after stacking completes
+                </small>
+            </div>
         </div>
 
         <div class="recipe-editor-actions">
@@ -476,6 +493,109 @@
             <button id="loadFromPreview" class="primary" style="display: none;">Load Recipe</button>
             <button id="editFromPreview" class="secondary" style="display: none;">Edit Recipe</button>
             <button id="closePreview" class="secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- Post-Process Preview Dialog -->
+    <div id="postProcPreviewDialog" style="display: none;">
+        <h2>Post-Process Preview</h2>
+
+        <div class="recipe-preview-section">
+            <label for="postProcPreviewSelector">Select Post-Process</label>
+            <select id="postProcPreviewSelector" style="margin-bottom: 20px;">
+                <option value="">Choose a post-process...</option>
+            </select>
+        </div>
+
+        <div class="recipe-preview-section" id="postProcPreviewDetailsSection" style="display: none;">
+            <h3 id="postProcPreviewName" class="preview-recipe-name"></h3>
+            <p id="postProcPreviewDescription" class="preview-recipe-description"></p>
+
+            <div class="preview-grid">
+                <div class="preview-item">
+                    <span class="preview-label">Working Directory:</span>
+                    <span id="postProcPreviewWorkingDir" class="preview-value"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">OS Compatibility:</span>
+                    <span id="postProcPreviewOS" class="preview-value"></span>
+                </div>
+            </div>
+
+            <div style="margin-top: 16px;">
+                <strong>Command:</strong>
+                <pre id="postProcPreviewCommand" style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;"></pre>
+            </div>
+        </div>
+
+        <div class="recipe-editor-actions">
+            <button id="usePostProcFromPreview" class="primary" style="display: none;">Use Post-Process</button>
+            <button id="editPostProcFromPreview" class="secondary" style="display: none;">Edit Post-Process</button>
+            <button id="closePostProcPreview" class="secondary">Close</button>
+        </div>
+    </div>
+
+    <!-- Post-Processing Recipe Editor Dialog -->
+    <div id="postProcEditorDialog" style="display: none;">
+        <h2 id="postProcEditorTitle">New Post-Processing Recipe</h2>
+
+        <div class="form-group">
+            <label for="postProcName">Recipe Name *</label>
+            <input type="text" id="postProcName" placeholder="e.g., FFmpeg HD Video" required>
+        </div>
+
+        <div class="form-group">
+            <label for="postProcDescription">Description</label>
+            <textarea id="postProcDescription" rows="2" placeholder="Brief description of what this recipe does"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="postProcCommand">Command *</label>
+            <textarea id="postProcCommand" rows="4" placeholder="e.g., ffmpeg -framerate 30 -i *.jpg output.mp4" required></textarea>
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Shell command to execute. Use bash syntax for macOS/Linux or PowerShell syntax for Windows. Current working directory will be the output or input directory.
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label for="postProcWorkingDir">Working Directory</label>
+            <select id="postProcWorkingDir">
+                <option value="output">Output Directory (stacked images)</option>
+                <option value="input">Input Directory (source images)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="postProcOS">Operating System Compatibility</label>
+            <select id="postProcOS">
+                <option value="all">All Operating Systems</option>
+                <option value="macos">macOS Only</option>
+                <option value="linux">Linux Only</option>
+                <option value="windows">Windows Only</option>
+                <option value="macos,linux">macOS and Linux</option>
+            </select>
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Recipe will only be shown on compatible operating systems
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label for="postProcEnvVars">Environment Variables (JSON)</label>
+            <textarea id="postProcEnvVars" rows="2" placeholder='{"PATH": "/custom/path"}'></textarea>
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Optional JSON object of environment variables to add/override
+            </small>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: space-between;">
+            <div style="display: flex; gap: 10px;">
+                <button id="savePostProcBtn" class="primary">Save Recipe</button>
+                <button id="cancelPostProcBtn" class="secondary">Cancel</button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="exportPostProcBtn" class="secondary" style="display: none;">Export</button>
+                <button id="deletePostProcBtn" class="secondary" style="display: none; background: #f44336;">Delete</button>
+            </div>
         </div>
     </div>
 
