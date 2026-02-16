@@ -1238,7 +1238,6 @@ async function init() {
     // Post-processing event listeners
     document.getElementById('savePostProcBtn').addEventListener('click', savePostProcRecipe);
     document.getElementById('cancelPostProcBtn').addEventListener('click', closePostProcEditor);
-    document.getElementById('exportPostProcBtn').addEventListener('click', exportPostProcRecipe);
     document.getElementById('deletePostProcBtn').addEventListener('click', async () => {
         if (currentPostProcRecipe) {
             await deletePostProcRecipe(currentPostProcRecipe.name);
@@ -3175,8 +3174,7 @@ async function editPostProcRecipe(recipeName) {
         }
         document.getElementById('postProcOS').value = osSelectValue;
 
-        // Show export and delete buttons
-        document.getElementById('exportPostProcBtn').style.display = 'block';
+        // Show delete button
         document.getElementById('deletePostProcBtn').style.display = 'block';
 
         // Show editor and overlay
@@ -3188,78 +3186,6 @@ async function editPostProcRecipe(recipeName) {
 }
 
 // Export post-processing recipe
-async function exportPostProcRecipe() {
-    if (!currentPostProcRecipe) {
-        return;
-    }
-
-    const recipeName = document.getElementById('postProcName').value.trim() || 'postproc_recipe';
-
-    // Gather current form values
-    const description = document.getElementById('postProcDescription').value.trim();
-    const command = document.getElementById('postProcCommand').value.trim();
-    const workingDir = document.getElementById('postProcWorkingDir').value;
-    const envVarsText = document.getElementById('postProcEnvVars').value.trim();
-    const osValue = document.getElementById('postProcOS').value;
-
-    // Parse env vars
-    let envVars = {};
-    if (envVarsText) {
-        try {
-            envVars = JSON.parse(envVarsText);
-        } catch (e) {
-            await showMessageDialog('Error', '<p>Invalid JSON in environment variables.</p>');
-            return;
-        }
-    }
-
-    // Parse OS value
-    let os = osValue;
-    if (osValue.includes(',')) {
-        os = osValue.split(',').map(s => s.trim());
-    }
-
-    // Build YAML content
-    let yamlContent = `name: "${recipeName}"\n`;
-    yamlContent += `description: "${description}"\n`;
-    yamlContent += `command: "${command.replace(/"/g, '\\"')}"\n`;
-    yamlContent += `working_directory: "${workingDir}"\n`;
-
-    // Add env_vars if present
-    if (Object.keys(envVars).length > 0) {
-        yamlContent += `env_vars:\n`;
-        for (const [key, value] of Object.entries(envVars)) {
-            yamlContent += `  ${key}: "${value}"\n`;
-        }
-    } else {
-        yamlContent += `env_vars: {}\n`;
-    }
-
-    // Add OS field
-    if (Array.isArray(os)) {
-        yamlContent += `os: [${os.map(o => `"${o}"`).join(', ')}]\n`;
-    } else {
-        yamlContent += `os: "${os}"\n`;
-    }
-
-    try {
-        // Save file using Tauri dialog
-        const safeName = recipeName.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
-        const filePath = await invoke('save_dialog', {
-            defaultPath: `${safeName}.yaml`,
-            filters: [{ name: 'YAML', extensions: ['yaml', 'yml'] }]
-        });
-
-        if (filePath) {
-            await invoke('write_text_file', { path: filePath, contents: yamlContent });
-            await showMessageDialog('Success', `<p>Recipe exported to:</p><p style="margin-top: 10px; font-family: monospace; word-break: break-all;">${escapeHtml(filePath)}</p>`);
-        }
-    } catch (error) {
-        console.error('Error exporting recipe:', error);
-        await showMessageDialog('Error', `<p>Failed to export recipe: ${escapeHtml(String(error))}</p>`);
-    }
-}
-
 // Delete post-processing recipe
 async function deletePostProcRecipe(recipeName) {
     const confirmed = await customConfirm(
@@ -3300,8 +3226,7 @@ function openNewPostProcEditor() {
     document.getElementById('postProcOS').value = 'all';
     document.getElementById('postProcEnvVars').value = '{}';
 
-    // Hide export and delete buttons
-    document.getElementById('exportPostProcBtn').style.display = 'none';
+    // Hide delete button
     document.getElementById('deletePostProcBtn').style.display = 'none';
 
     // Show editor and overlay
