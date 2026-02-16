@@ -42,6 +42,7 @@ const browseOutputBtn = document.getElementById('browseOutput');
 const startButton = document.getElementById('startButton');
 const inputValidationEl = document.getElementById('inputValidation');
 const progressDialog = document.getElementById('progressDialog');
+const progressTitle = document.getElementById('progressTitle');
 const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const overlay = document.getElementById('overlay');
@@ -138,6 +139,7 @@ async function loadUserRecipeYaml(recipeId) {
 let stackingQueue = [];
 let isBatchProcessing = false;
 let currentBatchIndex = -1;
+let totalBatchJobs = 0;
 let editingQueueItemId = null;
 
 // Load queue from localStorage
@@ -176,7 +178,7 @@ function loadQueue() {
                             frame_interval: item.config.frameInterval || item.config.frame_interval || 1,
                             trail_length: item.config.trailLength || item.config.trail_length || 10,
                             trail_gradient: item.config.trailGradient !== undefined ? item.config.trailGradient : (item.config.trail_gradient || false),
-                            gradient_decay: item.config.gradientDecay || item.config.gradient_decay || 0.8,
+                            gradient_decay: item.config.gradientDecay || item.config.gradient_decay || 0.85,
                             gradient_plateau: item.config.gradientPlateau || item.config.gradient_plateau || 3,
                             fade_out: item.config.fadeOut !== undefined ? item.config.fadeOut : (item.config.fade_out || false),
                             quality: item.config.quality || 95,
@@ -475,12 +477,18 @@ async function editQueueItem(id) {
     document.getElementById('frameInterval').value = item.config.frame_interval || 1;
     document.getElementById('trailLength').value = item.config.trail_length || 10;
     document.getElementById('trailGradient').checked = item.config.trail_gradient || false;
-    document.getElementById('gradientDecay').value = item.config.gradient_decay || 0.8;
+    document.getElementById('gradientDecay').value = item.config.gradient_decay || 0.85;
     document.getElementById('gradientPlateau').value = item.config.gradient_plateau || 3;
     document.getElementById('fadeOut').checked = item.config.fade_out || false;
     document.getElementById('quality').value = item.config.quality || 95;
     document.getElementById('pngCompressLevel').value = item.config.png_compress_level || 6;
     document.getElementById('tiffCompression').value = item.config.tiff_compression || 'deflate';
+
+    // Load file list for the input directory
+    await loadFileList(item.config.input_path);
+
+    // Update file selection highlighting based on start/end frames
+    updateFileSelection();
 
     // Show/hide buttons
     document.getElementById('startButton').style.display = 'none';
@@ -582,7 +590,7 @@ async function resetForm() {
 
         if (trailLength) trailLength.value = '0';
         if (trailGradient) trailGradient.checked = false;
-        if (gradientDecay) gradientDecay.value = '0.8';
+        if (gradientDecay) gradientDecay.value = '0.85';
         if (gradientPlateau) gradientPlateau.value = '0';
         if (fadeOut) fadeOut.checked = false;
 
@@ -767,6 +775,13 @@ async function executeStackingJob(config) {
             progressText.textContent = 'Initializing...';
             cancelStackingButton.style.display = 'block';
             openOutputButton.style.display = 'none';
+
+            // Update title to show batch progress if in batch mode
+            if (isBatchProcessing) {
+                progressTitle.textContent = `Stacking Images (${currentBatchIndex} of ${totalBatchJobs})`;
+            } else {
+                progressTitle.textContent = 'Stacking Images';
+            }
 
             // Remove global cancel handler to avoid conflicts
             cancelStackingButton.removeEventListener('click', cancelStacking);
@@ -1017,13 +1032,16 @@ async function startBatchProcessing() {
     closeQueueDialog();
 
     isBatchProcessing = true;
+    totalBatchJobs = pendingJobs.length;
+    let currentJobNumber = 0;
 
     for (let i = 0; i < stackingQueue.length; i++) {
         const item = stackingQueue[i];
 
         if (item.status !== 'pending') continue;
 
-        currentBatchIndex = i;
+        currentJobNumber++;
+        currentBatchIndex = currentJobNumber;
         item.status = 'processing';
         saveQueue();
 
@@ -1064,6 +1082,7 @@ async function startBatchProcessing() {
 
     isBatchProcessing = false;
     currentBatchIndex = -1;
+    totalBatchJobs = 0;
 
     // Show completion summary
     const completed = stackingQueue.filter(i => i.status === 'completed').length;
@@ -1902,6 +1921,7 @@ async function startStacking() {
     // Show progress dialog
     overlay.style.display = 'block';
     progressDialog.style.display = 'block';
+    progressTitle.textContent = 'Stacking Images';
     progressFill.style.width = '0%';
     progressFill.textContent = '0%';
     progressText.textContent = 'Starting...';
