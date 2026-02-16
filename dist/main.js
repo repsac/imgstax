@@ -258,7 +258,8 @@ function collectFormConfig() {
         quality: parseInt(document.getElementById('quality').value),
         png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
         tiff_compression: document.getElementById('tiffCompression').value,
-        export_recipe: document.getElementById('exportRecipeWithImages').checked
+        export_recipe: document.getElementById('exportRecipeWithImages').checked,
+        post_process: document.getElementById('postProcess').value || ''
     };
 }
 
@@ -483,6 +484,7 @@ async function editQueueItem(id) {
     document.getElementById('quality').value = item.config.quality || 95;
     document.getElementById('pngCompressLevel').value = item.config.png_compress_level || 6;
     document.getElementById('tiffCompression').value = item.config.tiff_compression || 'deflate';
+    document.getElementById('postProcess').value = item.config.post_process || '';
 
     // Load file list for the input directory
     await loadFileList(item.config.input_path);
@@ -772,7 +774,10 @@ async function executeStackingJob(config) {
             progressDialog.style.display = 'block';
             progressFill.style.width = '0%';
             progressFill.textContent = '0%';
+            progressFill.style.background = ''; // Reset to default color
+            progressFill.classList.remove('indeterminate'); // Remove animation classes
             progressText.textContent = 'Initializing...';
+            progressText.innerHTML = ''; // Clear any HTML from previous errors
             cancelStackingButton.style.display = 'block';
             openOutputButton.style.display = 'none';
 
@@ -854,12 +859,23 @@ async function executeStackingJob(config) {
             // Start stacking
             const result = await invoke('start_stacking', { config });
 
+            if (unlisten) unlisten();
+
+            // Check if post-processing should run
+            if (!cancelled && result.success && config.post_process && config.post_process !== '') {
+                try {
+                    // Execute post-processing before hiding dialog
+                    await executePostProcessAfterStacking(config.post_process, result.output_dir);
+                } catch (error) {
+                    console.error('Post-processing failed:', error);
+                    // Continue even if post-processing fails
+                }
+            }
+
             // Hide progress dialog
             overlay.style.display = 'none';
             progressDialog.style.display = 'none';
             cancelStackingButton.style.display = 'none';
-
-            if (unlisten) unlisten();
 
             // Restore global cancel handler
             cancelStackingButton.addEventListener('click', cancelStacking);
@@ -1035,6 +1051,11 @@ async function startBatchProcessing() {
     totalBatchJobs = pendingJobs.length;
     let currentJobNumber = 0;
 
+    // Track batch results
+    let batchCompleted = 0;
+    let batchFailed = 0;
+    let batchCancelled = 0;
+
     for (let i = 0; i < stackingQueue.length; i++) {
         const item = stackingQueue[i];
 
@@ -1052,10 +1073,12 @@ async function startBatchProcessing() {
             if (success === 'cancelled-entire') {
                 // User chose to cancel entire queue
                 item.status = 'cancelled';
+                batchCancelled++;
                 // Mark all remaining pending as cancelled
                 for (let j = i + 1; j < stackingQueue.length; j++) {
                     if (stackingQueue[j].status === 'pending') {
                         stackingQueue[j].status = 'cancelled';
+                        batchCancelled++;
                     }
                 }
                 saveQueue();
@@ -1063,16 +1086,20 @@ async function startBatchProcessing() {
             } else if (success === 'cancelled-current') {
                 // User chose to skip only current job, continue with queue
                 item.status = 'cancelled';
+                batchCancelled++;
                 saveQueue();
                 continue;
             } else if (success) {
                 item.status = 'completed';
+                batchCompleted++;
             } else {
                 item.status = 'failed';
+                batchFailed++;
                 item.error = 'Stacking failed';
             }
         } catch (error) {
             item.status = 'failed';
+            batchFailed++;
             item.error = error.message || 'Unknown error';
             console.error('Batch processing error:', error);
         }
@@ -1084,10 +1111,10 @@ async function startBatchProcessing() {
     currentBatchIndex = -1;
     totalBatchJobs = 0;
 
-    // Show completion summary
-    const completed = stackingQueue.filter(i => i.status === 'completed').length;
-    const failed = stackingQueue.filter(i => i.status === 'failed').length;
-    const cancelled = stackingQueue.filter(i => i.status === 'cancelled').length;
+    // Show completion summary (only jobs processed in this batch)
+    const completed = batchCompleted;
+    const failed = batchFailed;
+    const cancelled = batchCancelled;
 
     const summaryMessage = `
         <p style="margin-bottom: 15px; font-size: 16px;">Batch processing complete!</p>
@@ -1154,6 +1181,9 @@ async function init() {
     // Refresh recipe dropdown to include user recipes
     await refreshRecipeDropdown();
 
+    // Refresh post-process dropdown to include recipes
+    await refreshPostProcDropdown();
+
     try {
         const version = await invoke('get_app_version');
         statusEl.textContent = `imgstax v${version}`;
@@ -1205,6 +1235,43 @@ async function init() {
     document.getElementById('updateQueueBtn').addEventListener('click', updateQueueItem);
     document.getElementById('cancelEditBtn').addEventListener('click', cancelEditing);
 
+    // Post-processing event listeners
+    document.getElementById('savePostProcBtn').addEventListener('click', savePostProcRecipe);
+    document.getElementById('cancelPostProcBtn').addEventListener('click', closePostProcEditor);
+    document.getElementById('exportPostProcBtn').addEventListener('click', exportPostProcRecipe);
+    document.getElementById('deletePostProcBtn').addEventListener('click', async () => {
+        if (currentPostProcRecipe) {
+            await deletePostProcRecipe(currentPostProcRecipe.name);
+        }
+    });
+    document.getElementById('closePostProcPreview').addEventListener('click', closePostProcPreview);
+    document.getElementById('postProcPreviewSelector').addEventListener('change', handlePostProcPreviewSelection);
+    document.getElementById('usePostProcFromPreview').addEventListener('click', usePostProcFromPreview);
+    document.getElementById('editPostProcFromPreview').addEventListener('click', editPostProcFromPreview);
+
+    // Post-process dropdown handler
+    document.getElementById('postProcess').addEventListener('change', async function() {
+        const value = this.value;
+
+        try {
+            if (value === '__create__') {
+                // Open editor for new post-process
+                openNewPostProcEditor();
+                this.value = ''; // Reset dropdown
+            } else if (value === '__preview__') {
+                // Open preview dialog
+                console.log('Opening post-process preview dialog...');
+                await openPostProcPreview();
+                console.log('Post-process preview dialog opened');
+                this.value = ''; // Reset dropdown
+            }
+            // Otherwise, the selected post-process is just stored in the dropdown value
+        } catch (error) {
+            console.error('Error in post-process dropdown handler:', error);
+            await showMessageDialog('Error', `<p>Failed to open dialog: ${escapeHtml(String(error))}</p>`);
+        }
+    });
+
     // Maximized image overlay - close on click
     maximizedImageOverlay.addEventListener('click', () => {
         maximizedImageOverlay.style.display = 'none';
@@ -1254,6 +1321,7 @@ async function init() {
                 if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
                 if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
                 if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
+                if (settings.post_process !== undefined) document.getElementById('postProcess').value = settings.post_process;
             } else {
                 console.error('Error loading user recipe:', result.error);
                 await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
@@ -1924,7 +1992,10 @@ async function startStacking() {
     progressTitle.textContent = 'Stacking Images';
     progressFill.style.width = '0%';
     progressFill.textContent = '0%';
+    progressFill.style.background = ''; // Reset to default color
+    progressFill.classList.remove('indeterminate'); // Remove animation classes
     progressText.textContent = 'Starting...';
+    progressText.innerHTML = ''; // Clear any HTML from previous errors
     openOutputButton.style.display = 'none';
     cancelStackingButton.style.display = 'block';
     startButton.disabled = true;
@@ -1936,6 +2007,14 @@ async function startStacking() {
             outputDirFromStack = result.output_dir;
             progressText.textContent = 'Stacking complete!';
             cancelStackingButton.style.display = 'none';
+
+            // Check if post-processing is selected
+            const postProcessName = document.getElementById('postProcess').value;
+            if (postProcessName && postProcessName !== '') {
+                // Execute post-processing
+                await executePostProcessAfterStacking(postProcessName, result.output_dir);
+            }
+
             openOutputButton.style.display = 'block';
         } else {
             progressText.textContent = `Error: ${result.error}`;
@@ -2045,6 +2124,7 @@ async function openRecipeEditor(recipeId = null) {
         document.getElementById('recipeGradientDecay').value = settings.gradient_decay || 0.85;
         document.getElementById('recipeGradientPlateau').value = settings.gradient_plateau || 0;
         document.getElementById('recipeFadeOut').checked = settings.fade_out || false;
+        document.getElementById('recipePostProcess').value = settings.post_process || '';
     } else {
         // New recipe mode - generate a new UUID
         currentEditingRecipeId = generateUUID();
@@ -2066,7 +2146,11 @@ async function openRecipeEditor(recipeId = null) {
         document.getElementById('recipeGradientDecay').value = 0.85;
         document.getElementById('recipeGradientPlateau').value = 0;
         document.getElementById('recipeFadeOut').checked = false;
+        document.getElementById('recipePostProcess').value = '';
     }
+
+    // Populate post-process dropdown
+    await populateRecipePostProcessDropdown();
 
     // Show dialog
     document.getElementById('overlay').style.display = 'block';
@@ -2074,6 +2158,53 @@ async function openRecipeEditor(recipeId = null) {
 
     // Set up validation listeners
     setupRecipeValidation();
+}
+
+// Populate post-process dropdown in recipe editor
+async function populateRecipePostProcessDropdown() {
+    const select = document.getElementById('recipePostProcess');
+    const currentValue = select.value;
+
+    // Clear existing options
+    select.innerHTML = '';
+
+    // Add "None" option
+    const noneOption = document.createElement('option');
+    noneOption.value = '';
+    noneOption.textContent = 'None';
+    select.appendChild(noneOption);
+
+    // Load post-processing recipes
+    try {
+        const recipes = await invoke('list_postproc_recipes');
+
+        if (recipes.length > 0) {
+            // Add divider
+            const divider = document.createElement('option');
+            divider.disabled = true;
+            divider.textContent = '────────────';
+            select.appendChild(divider);
+
+            // Add recipes
+            recipes.forEach(recipe => {
+                const option = document.createElement('option');
+                option.value = recipe.name;
+                const suffix = recipe.is_builtin ? ' (Built-in)' : ' (User)';
+                option.textContent = recipe.name + suffix;
+                select.appendChild(option);
+            });
+        }
+
+        // Restore previous selection if still valid
+        if (currentValue) {
+            const options = Array.from(select.options);
+            if (options.some(opt => opt.value === currentValue)) {
+                select.value = currentValue;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading post-processing recipes for recipe editor:', error);
+    }
 }
 
 function closeRecipeEditor() {
@@ -2303,7 +2434,8 @@ async function saveRecipe() {
         trail_gradient: document.getElementById('recipeTrailGradient').checked,
         gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
         gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
-        fade_out: document.getElementById('recipeFadeOut').checked
+        fade_out: document.getElementById('recipeFadeOut').checked,
+        post_process: document.getElementById('recipePostProcess').value || ''
     };
 
     const yamlContent = `# ${recipeName}
@@ -2323,6 +2455,7 @@ settings:
   gradient_decay: ${settings.gradient_decay}
   gradient_plateau: ${settings.gradient_plateau}
   fade_out: ${settings.fade_out}
+  post_process: "${settings.post_process}"
 `;
 
     try {
@@ -2859,6 +2992,7 @@ async function loadFromPreview() {
         if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
         if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
         if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
+        if (settings.post_process !== undefined) document.getElementById('postProcess').value = settings.post_process;
 
         // Update the main recipe dropdown to show this recipe
         document.getElementById('recipe').value = currentPreviewRecipeId;
@@ -2991,6 +3125,623 @@ async function refreshRecipeDropdown() {
         }
     }
 }
+
+// ==================== Post-Processing Functions ====================
+
+let currentPostProcRecipe = null;
+let editingPostProcRecipePath = null;
+
+// Format OS value for display
+function formatOSBadge(osValue) {
+    if (!osValue || osValue === 'all') {
+        return '<span class="os-badge os-all">All</span>';
+    }
+
+    if (Array.isArray(osValue)) {
+        return osValue.map(os => {
+            const displayName = os.charAt(0).toUpperCase() + os.slice(1);
+            return `<span class="os-badge os-${os}">${displayName}</span>`;
+        }).join(' ');
+    }
+
+    const displayName = osValue.charAt(0).toUpperCase() + osValue.slice(1);
+    return `<span class="os-badge os-${osValue}">${displayName}</span>`;
+}
+
+
+// Edit post-processing recipe
+async function editPostProcRecipe(recipeName) {
+    try {
+        const recipe = await invoke('load_postproc_recipe', { recipeName });
+        currentPostProcRecipe = recipe;
+        editingPostProcRecipePath = recipe.path;
+
+        // Populate form
+        document.getElementById('postProcEditorTitle').textContent = 'Edit Post-Processing Recipe';
+        document.getElementById('postProcName').value = recipe.name;
+        document.getElementById('postProcDescription').value = recipe.description || '';
+        document.getElementById('postProcCommand').value = recipe.command;
+        document.getElementById('postProcWorkingDir').value = recipe.working_directory || 'output';
+        document.getElementById('postProcEnvVars').value = JSON.stringify(recipe.env_vars || {}, null, 2);
+
+        // Set OS field (convert array to comma-separated if needed)
+        let osSelectValue = 'all';
+        if (recipe.os) {
+            if (Array.isArray(recipe.os)) {
+                osSelectValue = recipe.os.join(',');
+            } else {
+                osSelectValue = recipe.os;
+            }
+        }
+        document.getElementById('postProcOS').value = osSelectValue;
+
+        // Show export and delete buttons
+        document.getElementById('exportPostProcBtn').style.display = 'block';
+        document.getElementById('deletePostProcBtn').style.display = 'block';
+
+        // Show editor and overlay
+        document.getElementById('postProcEditorDialog').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    } catch (error) {
+        await showMessageDialog('Error', `<p>Failed to load recipe: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Export post-processing recipe
+async function exportPostProcRecipe() {
+    if (!currentPostProcRecipe) {
+        return;
+    }
+
+    const recipeName = document.getElementById('postProcName').value.trim() || 'postproc_recipe';
+
+    // Gather current form values
+    const description = document.getElementById('postProcDescription').value.trim();
+    const command = document.getElementById('postProcCommand').value.trim();
+    const workingDir = document.getElementById('postProcWorkingDir').value;
+    const envVarsText = document.getElementById('postProcEnvVars').value.trim();
+    const osValue = document.getElementById('postProcOS').value;
+
+    // Parse env vars
+    let envVars = {};
+    if (envVarsText) {
+        try {
+            envVars = JSON.parse(envVarsText);
+        } catch (e) {
+            await showMessageDialog('Error', '<p>Invalid JSON in environment variables.</p>');
+            return;
+        }
+    }
+
+    // Parse OS value
+    let os = osValue;
+    if (osValue.includes(',')) {
+        os = osValue.split(',').map(s => s.trim());
+    }
+
+    // Build YAML content
+    let yamlContent = `name: "${recipeName}"\n`;
+    yamlContent += `description: "${description}"\n`;
+    yamlContent += `command: "${command.replace(/"/g, '\\"')}"\n`;
+    yamlContent += `working_directory: "${workingDir}"\n`;
+
+    // Add env_vars if present
+    if (Object.keys(envVars).length > 0) {
+        yamlContent += `env_vars:\n`;
+        for (const [key, value] of Object.entries(envVars)) {
+            yamlContent += `  ${key}: "${value}"\n`;
+        }
+    } else {
+        yamlContent += `env_vars: {}\n`;
+    }
+
+    // Add OS field
+    if (Array.isArray(os)) {
+        yamlContent += `os: [${os.map(o => `"${o}"`).join(', ')}]\n`;
+    } else {
+        yamlContent += `os: "${os}"\n`;
+    }
+
+    try {
+        // Save file using Tauri dialog
+        const safeName = recipeName.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        const filePath = await invoke('save_dialog', {
+            defaultPath: `${safeName}.yaml`,
+            filters: [{ name: 'YAML', extensions: ['yaml', 'yml'] }]
+        });
+
+        if (filePath) {
+            await invoke('write_text_file', { path: filePath, contents: yamlContent });
+            await showMessageDialog('Success', `<p>Recipe exported to:</p><p style="margin-top: 10px; font-family: monospace; word-break: break-all;">${escapeHtml(filePath)}</p>`);
+        }
+    } catch (error) {
+        console.error('Error exporting recipe:', error);
+        await showMessageDialog('Error', `<p>Failed to export recipe: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Delete post-processing recipe
+async function deletePostProcRecipe(recipeName) {
+    const confirmed = await customConfirm(
+        `Delete recipe "${recipeName}"? This cannot be undone.`,
+        'Delete Recipe'
+    );
+
+    if (!confirmed) return;
+
+    try {
+        // Load recipe to get its path
+        const recipe = await invoke('load_postproc_recipe', { recipeName });
+
+        await invoke('delete_postproc_recipe', { recipePath: recipe.path });
+        await showMessageDialog('Success', '<p>Recipe deleted successfully.</p>');
+
+        // Close editor
+        closePostProcEditor();
+
+        // Refresh dropdown
+        await refreshPostProcDropdown();
+    } catch (error) {
+        await showMessageDialog('Error', `<p>Failed to delete recipe: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Open new post-processing recipe editor
+function openNewPostProcEditor() {
+    currentPostProcRecipe = null;
+    editingPostProcRecipePath = null;
+
+    // Reset form
+    document.getElementById('postProcEditorTitle').textContent = 'New Post-Processing Recipe';
+    document.getElementById('postProcName').value = '';
+    document.getElementById('postProcDescription').value = '';
+    document.getElementById('postProcCommand').value = '';
+    document.getElementById('postProcWorkingDir').value = 'output';
+    document.getElementById('postProcOS').value = 'all';
+    document.getElementById('postProcEnvVars').value = '{}';
+
+    // Hide export and delete buttons
+    document.getElementById('exportPostProcBtn').style.display = 'none';
+    document.getElementById('deletePostProcBtn').style.display = 'none';
+
+    // Show editor and overlay
+    document.getElementById('postProcEditorDialog').style.display = 'block';
+    document.getElementById('overlay').style.display = 'block';
+}
+
+// Save post-processing recipe
+async function savePostProcRecipe() {
+    const name = document.getElementById('postProcName').value.trim();
+    const description = document.getElementById('postProcDescription').value.trim();
+    const command = document.getElementById('postProcCommand').value.trim();
+    const workingDir = document.getElementById('postProcWorkingDir').value;
+    const envVarsText = document.getElementById('postProcEnvVars').value.trim();
+    const osValue = document.getElementById('postProcOS').value;
+
+    // Validate
+    if (!name) {
+        await showMessageDialog('Validation Error', '<p>Recipe name is required.</p>');
+        return;
+    }
+
+    if (!command) {
+        await showMessageDialog('Validation Error', '<p>Command is required.</p>');
+        return;
+    }
+
+    // Parse env vars
+    let envVars = {};
+    if (envVarsText) {
+        try {
+            envVars = JSON.parse(envVarsText);
+            if (typeof envVars !== 'object' || Array.isArray(envVars)) {
+                throw new Error('Must be an object');
+            }
+        } catch (e) {
+            await showMessageDialog('Validation Error', '<p>Environment variables must be valid JSON object.</p>');
+            return;
+        }
+    }
+
+    // Parse OS value (can be comma-separated for multiple)
+    let os = osValue;
+    if (osValue.includes(',')) {
+        os = osValue.split(',').map(s => s.trim());
+    }
+
+    // Build recipe object
+    const recipe = {
+        name,
+        description,
+        command,
+        working_directory: workingDir,
+        env_vars: envVars,
+        os: os
+    };
+
+    try {
+        const recipeJson = JSON.stringify(recipe);
+        await invoke('save_postproc_recipe', { recipeJson });
+        await showMessageDialog('Success', '<p>Recipe saved successfully!</p>');
+
+        // Close editor
+        closePostProcEditor();
+
+        // Refresh dropdown
+        await refreshPostProcDropdown();
+    } catch (error) {
+        await showMessageDialog('Error', `<p>Failed to save recipe: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Close post-processing editor
+function closePostProcEditor() {
+    document.getElementById('postProcEditorDialog').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
+}
+
+// Refresh post-process dropdown
+async function refreshPostProcDropdown() {
+    const postProcSelect = document.getElementById('postProcess');
+    const currentValue = postProcSelect.value;
+
+    // Clear existing options
+    postProcSelect.innerHTML = '';
+
+    // Add "None" option
+    const noneOption = document.createElement('option');
+    noneOption.value = '';
+    noneOption.textContent = 'None';
+    postProcSelect.appendChild(noneOption);
+
+    // Add divider
+    const divider1 = document.createElement('option');
+    divider1.disabled = true;
+    divider1.textContent = '────────────';
+    postProcSelect.appendChild(divider1);
+
+    // Add "Create Post-Process" option
+    const createOption = document.createElement('option');
+    createOption.value = '__create__';
+    createOption.textContent = '✎ Create Post-Process';
+    postProcSelect.appendChild(createOption);
+
+    // Add "Preview Post-Processes" option
+    const previewOption = document.createElement('option');
+    previewOption.value = '__preview__';
+    previewOption.textContent = '👁 Preview Post-Processes...';
+    postProcSelect.appendChild(previewOption);
+
+    // Load and add post-processing recipes
+    try {
+        const recipes = await invoke('list_postproc_recipes');
+
+        if (recipes.length > 0) {
+            // Add divider before recipes
+            const divider2 = document.createElement('option');
+            divider2.disabled = true;
+            divider2.textContent = '────────────';
+            postProcSelect.appendChild(divider2);
+
+            // Add recipes
+            recipes.forEach(recipe => {
+                const option = document.createElement('option');
+                option.value = recipe.name;
+                const suffix = recipe.is_builtin ? ' (Built-in)' : ' (User)';
+                option.textContent = recipe.name + suffix;
+                postProcSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading post-processing recipes:', error);
+    }
+
+    // Restore previous selection if still valid
+    if (currentValue) {
+        const options = Array.from(postProcSelect.options);
+        if (options.some(opt => opt.value === currentValue)) {
+            postProcSelect.value = currentValue;
+        }
+    }
+}
+
+// Open post-process preview dialog
+async function openPostProcPreview() {
+    console.log('openPostProcPreview function called');
+    try {
+        // Load all recipes
+        console.log('Loading post-processing recipes...');
+        const recipes = await invoke('list_postproc_recipes');
+        console.log('Recipes loaded:', recipes.length);
+
+        // Populate selector
+        const selector = document.getElementById('postProcPreviewSelector');
+        console.log('Selector element:', selector);
+        selector.innerHTML = '<option value="">Choose a post-process...</option>';
+
+        recipes.forEach(recipe => {
+            const option = document.createElement('option');
+            option.value = recipe.name;
+            const suffix = recipe.is_builtin ? ' (Built-in)' : ' (User)';
+            option.textContent = recipe.name + suffix;
+            selector.appendChild(option);
+        });
+
+        // Show dialog
+        const dialog = document.getElementById('postProcPreviewDialog');
+        const overlay = document.getElementById('overlay');
+        console.log('Dialog element:', dialog);
+        console.log('Overlay element:', overlay);
+        console.log('Setting display to block...');
+
+        // Disable edit button initially (will enable when user recipe is selected)
+        document.getElementById('editPostProcFromPreview').disabled = true;
+
+        dialog.style.display = 'block';
+        overlay.style.display = 'block';
+        console.log('Dialog display:', dialog.style.display);
+        console.log('Overlay display:', overlay.style.display);
+    } catch (error) {
+        console.error('Error opening post-process preview:', error);
+        await showMessageDialog('Error', `<p>Failed to load post-processes: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Close post-process preview dialog
+function closePostProcPreview() {
+    document.getElementById('postProcPreviewDialog').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
+
+    // Clear selection
+    document.getElementById('postProcPreviewSelector').value = '';
+    document.getElementById('postProcPreviewDetailsSection').style.display = 'none';
+}
+
+// Handle post-process preview selector change
+async function handlePostProcPreviewSelection() {
+    const selector = document.getElementById('postProcPreviewSelector');
+    const recipeName = selector.value;
+
+    if (!recipeName) {
+        document.getElementById('postProcPreviewDetailsSection').style.display = 'none';
+        document.getElementById('usePostProcFromPreview').style.display = 'none';
+        document.getElementById('editPostProcFromPreview').style.display = 'none';
+        document.getElementById('editPostProcFromPreview').disabled = true;
+        return;
+    }
+
+    try {
+        const recipe = await invoke('load_postproc_recipe', { recipeName });
+
+        // Format OS display
+        let osDisplay = 'All';
+        if (recipe.os && recipe.os !== 'all') {
+            if (Array.isArray(recipe.os)) {
+                osDisplay = recipe.os.map(os => os.charAt(0).toUpperCase() + os.slice(1)).join(', ');
+            } else {
+                osDisplay = recipe.os.charAt(0).toUpperCase() + recipe.os.slice(1);
+            }
+        }
+
+        // Populate preview details
+        document.getElementById('postProcPreviewName').textContent = recipe.name;
+        document.getElementById('postProcPreviewDescription').textContent = recipe.description || 'No description';
+        document.getElementById('postProcPreviewWorkingDir').textContent = recipe.working_directory || 'output';
+        document.getElementById('postProcPreviewOS').textContent = osDisplay;
+        document.getElementById('postProcPreviewCommand').textContent = recipe.command;
+
+        // Show details section and buttons
+        document.getElementById('postProcPreviewDetailsSection').style.display = 'block';
+        document.getElementById('usePostProcFromPreview').style.display = 'inline-block';
+
+        // Only enable edit button for user recipes
+        const editBtn = document.getElementById('editPostProcFromPreview');
+        if (!recipe.is_builtin) {
+            editBtn.style.display = 'inline-block';
+            editBtn.disabled = false;
+        } else {
+            editBtn.style.display = 'inline-block';
+            editBtn.disabled = true;
+        }
+
+    } catch (error) {
+        console.error('Error loading post-process details:', error);
+        await showMessageDialog('Error', `<p>Failed to load post-process details: ${escapeHtml(String(error))}</p>`);
+    }
+}
+
+// Use post-process from preview
+async function usePostProcFromPreview() {
+    const recipeName = document.getElementById('postProcPreviewSelector').value;
+    if (!recipeName) return;
+
+    // Set the post-process dropdown to this recipe
+    document.getElementById('postProcess').value = recipeName;
+
+    // Close preview
+    closePostProcPreview();
+}
+
+// Edit post-process from preview
+async function editPostProcFromPreview() {
+    const recipeName = document.getElementById('postProcPreviewSelector').value;
+    if (!recipeName) return;
+
+    // Close preview
+    closePostProcPreview();
+
+    // Open editor
+    await editPostProcRecipe(recipeName);
+}
+
+// Execute post-processing after stacking completes
+// Returns: true on success, false on failure
+async function executePostProcessAfterStacking(recipeName, workingDirectory) {
+    try {
+        // Update progress dialog for post-processing
+        progressTitle.textContent = `Running Post-Process: ${recipeName}`;
+        progressText.textContent = 'Please wait...';
+
+        // Make progress bar indeterminate (animated)
+        progressFill.classList.add('indeterminate');
+        progressFill.style.width = '100%';
+        progressFill.textContent = '';
+
+        // Execute post-processing
+        console.log(`Executing post-process "${recipeName}" in directory: ${workingDirectory}`);
+        const result = await invoke('execute_postproc', {
+            recipeName: recipeName,
+            workingDirectory: workingDirectory
+        });
+
+        // Remove indeterminate state
+        progressFill.classList.remove('indeterminate');
+
+        if (result.success) {
+            progressFill.style.width = '100%';
+            progressFill.textContent = '100%';
+            progressFill.style.background = ''; // Reset to default
+            progressText.textContent = 'Post-processing complete!';
+            console.log('Post-processing output:', result.stdout);
+        } else {
+            // Show error state in progress bar
+            progressFill.style.width = '100%';
+            progressFill.textContent = '✗';
+            progressFill.style.background = '#f44336'; // Red for error
+
+            console.error('Post-processing error:', result.stderr);
+            console.log('Post-processing output:', result.stdout);
+
+            // Extract key error information from stderr
+            let errorSummary = result.stderr || 'Unknown error';
+
+            // Try to extract the most relevant error line (usually the last non-empty line)
+            if (errorSummary.trim()) {
+                const lines = errorSummary.trim().split('\n').filter(line => line.trim());
+                if (lines.length > 0) {
+                    // Get last line as it usually contains the main error
+                    errorSummary = lines[lines.length - 1];
+                    // Truncate if too long
+                    if (errorSummary.length > 200) {
+                        errorSummary = errorSummary.substring(0, 200) + '...';
+                    }
+                }
+            }
+
+            // Display concise error in progress text with full details in HTML
+            progressText.innerHTML = `
+                <div style="color: #f44336; font-weight: bold; margin-bottom: 10px;">
+                    Post-processing failed
+                </div>
+                <div style="font-size: 13px; margin-bottom: 10px;">
+                    ${escapeHtml(errorSummary)}
+                </div>
+                <details style="margin-top: 10px; cursor: pointer;">
+                    <summary style="font-weight: bold; color: #666; margin-bottom: 5px;">Show full error details</summary>
+                    <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+                        <div style="margin-bottom: 10px;">
+                            <strong>Return Code:</strong> ${result.return_code || 'Unknown'}
+                        </div>
+                        ${result.stderr && result.stderr.trim() ? `
+                            <div style="margin-bottom: 10px;">
+                                <strong>Error Output:</strong>
+                                <pre style="margin-top: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; font-family: monospace;">${escapeHtml(result.stderr)}</pre>
+                            </div>
+                        ` : ''}
+                        ${result.stdout && result.stdout.trim() ? `
+                            <div>
+                                <strong>Standard Output:</strong>
+                                <pre style="margin-top: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; font-family: monospace;">${escapeHtml(result.stdout)}</pre>
+                            </div>
+                        ` : ''}
+                    </div>
+                </details>
+                <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; font-size: 13px;">
+                    ${result.error_message ? escapeHtml(result.error_message) : '<strong>Tip:</strong> Check the error output above for details.'}
+                </div>
+            `;
+
+            // Wait for user acknowledgment before continuing
+            await waitForUserAcknowledgment();
+            return false; // Indicate failure
+        }
+
+        return true; // Indicate success
+    } catch (error) {
+        // Remove indeterminate state
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = '100%';
+        progressFill.textContent = '✗';
+        progressFill.style.background = '#f44336'; // Red for error
+
+        console.error('Post-processing execution error:', error);
+
+        // Display error in progress text
+        progressText.innerHTML = `
+            <div style="color: #f44336; font-weight: bold; margin-bottom: 10px;">
+                Post-processing error
+            </div>
+            <div style="font-size: 13px; margin-bottom: 10px;">
+                Failed to execute post-processing recipe
+            </div>
+            <details style="margin-top: 10px; cursor: pointer;">
+                <summary style="font-weight: bold; color: #666; margin-bottom: 5px;">Show error details</summary>
+                <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                    <pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 11px; font-family: monospace;">${escapeHtml(String(error))}</pre>
+                </div>
+            </details>
+            <div style="margin-top: 15px; padding: 10px; background: #ffebee; border-left: 4px solid #f44336; font-size: 13px;">
+                This error occurred while trying to invoke the post-processing command. Check that the post-processing recipe is properly configured.
+            </div>
+        `;
+
+        // Wait for user acknowledgment before continuing
+        await waitForUserAcknowledgment();
+        return false; // Indicate failure
+    }
+}
+
+// Wait for user to click Continue button after post-processing error
+function waitForUserAcknowledgment() {
+    return new Promise((resolve) => {
+        // Show Continue button, hide others temporarily
+        const continueBtn = document.createElement('button');
+        continueBtn.textContent = 'Continue';
+        continueBtn.className = 'primary';
+        continueBtn.style.flex = '1';
+        continueBtn.id = 'continueAfterErrorBtn';
+
+        // Find the button container and add the continue button
+        const buttonContainer = progressDialog.querySelector('div[style*="display: flex"]');
+        if (buttonContainer) {
+            // Hide existing buttons temporarily
+            const cancelBtn = document.getElementById('cancelStackingButton');
+            const openBtn = document.getElementById('openOutputButton');
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            if (openBtn) openBtn.style.display = 'none';
+
+            // Add continue button
+            buttonContainer.appendChild(continueBtn);
+
+            // Wait for click
+            continueBtn.addEventListener('click', () => {
+                // Remove continue button
+                continueBtn.remove();
+
+                // Restore original buttons
+                if (cancelBtn) cancelBtn.style.display = '';
+                if (openBtn) openBtn.style.display = '';
+
+                resolve();
+            });
+        } else {
+            // Fallback: just resolve immediately if button container not found
+            resolve();
+        }
+    });
+}
+
+// ==================== End Post-Processing Functions ====================
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
