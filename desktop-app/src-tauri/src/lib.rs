@@ -316,7 +316,15 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
     // Use Rust to count and validate images instead of Python (safer, no crash risk)
     let mut image_count = 0;
     let mut formats = std::collections::HashSet::new();
-    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    let image_extensions = [
+        ".jpg", ".jpeg", ".jpe", ".jfif",  // JPEG variants
+        ".png",                             // PNG
+        ".tif", ".tiff",                    // TIFF variants
+        ".bmp", ".dib",                     // BMP variants
+        ".webp",                            // WebP
+        ".tga",                             // TGA
+        ".ppm", ".pgm", ".pbm"              // Netpbm formats
+    ];
 
     match fs::read_dir(dir_path) {
         Ok(entries) => {
@@ -329,13 +337,21 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
                             let ext_str = format!(".{}", ext_lower);
                             if image_extensions.contains(&ext_str.as_str()) {
                                 image_count += 1;
-                                // Map to format names
-                                if ext_str == ".jpg" || ext_str == ".jpeg" {
+                                // Map to format names for GUI controls
+                                if ext_str == ".jpg" || ext_str == ".jpeg" || ext_str == ".jpe" || ext_str == ".jfif" {
                                     formats.insert("jpeg".to_string());
                                 } else if ext_str == ".png" {
                                     formats.insert("png".to_string());
                                 } else if ext_str == ".tif" || ext_str == ".tiff" {
                                     formats.insert("tiff".to_string());
+                                } else if ext_str == ".bmp" || ext_str == ".dib" {
+                                    formats.insert("bmp".to_string());
+                                } else if ext_str == ".webp" {
+                                    formats.insert("webp".to_string());
+                                } else if ext_str == ".tga" {
+                                    formats.insert("tga".to_string());
+                                } else if ext_str == ".ppm" || ext_str == ".pgm" || ext_str == ".pbm" {
+                                    formats.insert("netpbm".to_string());
                                 }
                             }
                         }
@@ -382,7 +398,15 @@ struct FileInfo {
 fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
     // Use Rust to get file list instead of Python (safer, no crash risk)
     let dir_path = Path::new(&path);
-    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    let image_extensions = [
+        ".jpg", ".jpeg", ".jpe", ".jfif",  // JPEG variants
+        ".png",                             // PNG
+        ".tif", ".tiff",                    // TIFF variants
+        ".bmp", ".dib",                     // BMP variants
+        ".webp",                            // WebP
+        ".tga",                             // TGA
+        ".ppm", ".pgm", ".pbm"              // Netpbm formats
+    ];
     let mut files = Vec::new();
 
     match fs::read_dir(dir_path) {
