@@ -1701,7 +1701,80 @@ function renderFileList() {
             const path = item.dataset.path;
             previewImage(path);
         });
+
+        // Add context menu handler
+        item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const index = parseInt(item.dataset.index, 10);
+            showFileContextMenu(e.clientX, e.clientY, index);
+        });
     });
+}
+
+// Context menu for file list items
+let contextMenuEl = null;
+
+function showFileContextMenu(x, y, frameIndex) {
+    // Remove existing context menu if any
+    hideFileContextMenu();
+
+    // Create context menu
+    contextMenuEl = document.createElement('div');
+    contextMenuEl.className = 'file-context-menu';
+    contextMenuEl.innerHTML = `
+        <div class="context-menu-item" data-action="set-start">Set Start Frame</div>
+        <div class="context-menu-item" data-action="set-end">Set End Frame</div>
+    `;
+
+    // Position the menu
+    contextMenuEl.style.left = `${x}px`;
+    contextMenuEl.style.top = `${y}px`;
+
+    document.body.appendChild(contextMenuEl);
+
+    // Add click handlers
+    contextMenuEl.querySelectorAll('.context-menu-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const action = item.dataset.action;
+            handleFrameSelection(action, frameIndex);
+            hideFileContextMenu();
+        });
+    });
+
+    // Close menu when clicking outside
+    setTimeout(() => {
+        document.addEventListener('click', hideFileContextMenu, { once: true });
+    }, 0);
+}
+
+function hideFileContextMenu() {
+    if (contextMenuEl) {
+        contextMenuEl.remove();
+        contextMenuEl = null;
+    }
+}
+
+function handleFrameSelection(action, frameIndex) {
+    const startFrameInput = document.getElementById('startFrame');
+    const endFrameInput = document.getElementById('endFrame');
+
+    if (action === 'set-start') {
+        startFrameInput.value = frameIndex;
+
+        // If end frame is set and new start frame is >= end frame, clear end frame
+        const currentEndFrame = parseInt(endFrameInput.value, 10);
+        if (!isNaN(currentEndFrame) && frameIndex >= currentEndFrame) {
+            endFrameInput.value = '';
+        }
+
+        // Update file selection and re-render
+        updateFileSelection();
+    } else if (action === 'set-end') {
+        endFrameInput.value = frameIndex;
+
+        // Update file selection and re-render
+        updateFileSelection();
+    }
 }
 
 function previewImage(imagePath) {
