@@ -51,8 +51,10 @@ npm run dev
 ## Features
 
 - 🎯 **Native file picker** - Browse for directories with system dialog
+- 🖼️ **File browser** - Preview images and right-click to set frame ranges
 - 🖥️ **Desktop app** - No browser or web server needed
 - 🎨 **Clean interface** - Same beautiful UI as web version
+- 📊 **Batch processing** - Queue multiple jobs with progress tracking
 - ⚙️ **All features** - Trail length, gradient, fade-out, quality control
 - 🍎 **Native** - Distributable as .dmg (macOS), .exe (Windows), .AppImage (Linux)
 

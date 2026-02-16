@@ -31,8 +31,10 @@ No Python installation required for pre-built applications!
 ### Visual Interface
 
 - **File Browser with Preview**: Browse directories and preview images before processing
+  - Right-click any image to set start/end frame for processing range
 - **Real-time Progress**: Watch your stacks build with live progress and ETA
 - **Batch Queue System**: Add multiple jobs and process them sequentially
+  - Progress shows current job number (e.g., "Stacking Images (2 of 5)")
 - **Recipe System**: Built-in presets for stars, traffic, murmurations, and more
 - **12 Color Themes**: Choose from Light, Dark, Desert, Forest, Utah, Yosemite, and more
 
@@ -265,9 +267,13 @@ Access themes from the ☰ menu → Theme.
 
 ## Supported Image Formats
 
-- **JPEG** (.jpg, .jpeg) - Adjustable quality (1-100)
+- **JPEG** (.jpg, .jpeg, .jpe, .jfif) - Adjustable quality (1-100)
 - **PNG** (.png) - Adjustable compression (0-9)
 - **TIFF** (.tif, .tiff) - Multiple compression options (none, lzw, deflate, jpeg)
+- **BMP** (.bmp, .dib) - Uncompressed bitmap format
+- **WebP** (.webp) - Modern efficient format
+- **TGA** (.tga) - Targa format (common in 3D rendering)
+- **Netpbm** (.ppm, .pgm, .pbm) - Simple portable formats
 
 All images in a sequence must have the same dimensions.
 
