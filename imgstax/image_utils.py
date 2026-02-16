@@ -142,11 +142,14 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
     first_image = images[0] if isinstance(images, list) else images[0]
     ext = first_image.suffix[1:].lower()
 
+    # Map file extensions to PIL format names (only when upper() doesn't match PIL format)
+    # Supported formats: JPEG, PNG, TIFF, BMP, WEBP, TGA, PPM, PGM, PBM
     img_format = {
         'jpg': 'JPEG',
-        'jpeg': 'JPEG',
+        'jpe': 'JPEG',
+        'jfif': 'JPEG',
         'tif': 'TIFF',
-        'tiff': 'TIFF'
+        'dib': 'BMP'
     }.get(ext, ext.upper())
     logger.info("Image format '%s' mapped from extension '%s'", img_format, ext)
 
