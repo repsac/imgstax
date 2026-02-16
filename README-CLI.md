@@ -269,9 +269,15 @@ imgstax traffic_images/ -t 20 -g -s maximum
 
 ## Supported Image Formats
 
-- JPEG (.jpg, .jpeg)
-- PNG (.png)
-- TIFF (.tif, .tiff)
+- **JPEG** (.jpg, .jpeg, .jpe, .jfif)
+- **PNG** (.png)
+- **TIFF** (.tif, .tiff)
+- **BMP** (.bmp, .dib)
+- **WebP** (.webp)
+- **TGA** (.tga)
+- **Netpbm** (.ppm, .pgm, .pbm)
+
+All images in a sequence must have the same dimensions.
 
 ## Format-Specific Options
 
