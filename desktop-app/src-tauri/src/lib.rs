@@ -185,6 +185,31 @@ fn has_bundled_binary() -> bool {
     false
 }
 
+/// Get the imgstax command to run, adapting to production vs development mode.
+/// Returns (command_path, base_args) to prepend before any subcommand flags.
+/// - Production: (path/to/imgstax[.exe], [])
+/// - Development: (python_path, ["-m", "imgstax"])
+fn get_imgstax_cmd() -> (String, Vec<String>) {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|p| p.to_path_buf()));
+
+    if let Some(dir) = exe_dir {
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
+        } else {
+            "imgstax"
+        };
+        let binary_path = dir.join(binary_name);
+        if binary_path.exists() {
+            return (binary_path.to_string_lossy().to_string(), vec![]);
+        }
+    }
+
+    // Development: fall back to Python -m imgstax
+    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Recipe {
     name: String,
@@ -273,12 +298,17 @@ struct PostProcRecipe {
 
 #[tauri::command]
 fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
-    let python_path = get_python_path();
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-list".to_string());
 
-    let output = Command::new(&python_path)
-        .args(&["-c", "import json; from imgstax.postproc_recipe_loader import list_postproc_recipes; print(json.dumps(list_postproc_recipes()))"])
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -286,25 +316,24 @@ fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let recipes: Vec<PostProcRecipe> = serde_json::from_str(&stdout)
-        .map_err(|e| format!("Failed to parse recipes: {}", e))?;
-
-    Ok(recipes)
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse recipes: {}", e))
 }
 
 #[tauri::command]
 fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String> {
-    let python_path = get_python_path();
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-get".to_string());
+    args.push(recipe_name.clone());
 
-    let script = format!(
-        "import json; from imgstax.postproc_recipe_loader import get_postproc_recipe_details; recipe = get_postproc_recipe_details('{}'); print(json.dumps(recipe) if recipe else 'null')",
-        recipe_name.replace("'", "\\'")
-    );
+    let mut command = Command::new(&cmd);
+    command.args(&args);
 
-    let output = Command::new(&python_path)
-        .args(&["-c", &script])
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -312,7 +341,7 @@ fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let recipe: serde_json::Value = serde_json::from_str(&stdout)
+    let recipe: serde_json::Value = serde_json::from_str(stdout.trim())
         .map_err(|e| format!("Failed to parse recipe: {}", e))?;
 
     if recipe.is_null() {
@@ -324,17 +353,18 @@ fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String
 
 #[tauri::command]
 fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
-    let python_path = get_python_path();
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-save".to_string());
+    args.push(recipe_json);
 
-    let script = format!(
-        "import json; from imgstax.postproc_recipe_loader import save_postproc_recipe; from pathlib import Path; recipe = json.loads('{}'); path = save_postproc_recipe(recipe); print(str(path))",
-        recipe_json.replace("'", "\\'").replace("\n", "\\n")
-    );
+    let mut command = Command::new(&cmd);
+    command.args(&args);
 
-    let output = Command::new(&python_path)
-        .args(&["-c", &script])
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -347,17 +377,18 @@ fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
 
 #[tauri::command]
 fn delete_postproc_recipe(recipe_path: String) -> Result<bool, String> {
-    let python_path = get_python_path();
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-delete".to_string());
+    args.push(recipe_path);
 
-    let script = format!(
-        "from imgstax.postproc_recipe_loader import delete_postproc_recipe; result = delete_postproc_recipe('{}'); print('true' if result else 'false')",
-        recipe_path.replace("'", "\\'")
-    );
+    let mut command = Command::new(&cmd);
+    command.args(&args);
 
-    let output = Command::new(&python_path)
-        .args(&["-c", &script])
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -378,76 +409,28 @@ async fn execute_postproc(
     use std::fs::OpenOptions;
     use std::io::Write as IoWrite;
 
-    let python_path = get_python_path();
-
     // Create log file path in the output directory
     let log_path = PathBuf::from(&working_directory).join("postproc.log");
     let log_path_str = log_path.to_string_lossy().to_string();
 
-    let script = format!(
-        r#"
-import json
-import sys
-from imgstax.postproc_recipe_loader import get_postproc_recipe_details
-from imgstax.post_processing import execute_post_processing
+    // Build command: bundled binary in production, python -m imgstax in dev
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-execute".to_string());
+    args.push(recipe_name.clone());
+    args.push("--working-dir".to_string());
+    args.push(working_directory.clone());
+    args.push("--log-file".to_string());
+    args.push(log_path_str.clone());
 
-# Open log file
-log_file = open('{}', 'w', encoding='utf-8')
-log_file.write('=== Post-Processing Log ===\n')
-log_file.write('Recipe: {}\n')
-log_file.write('Working Directory: {}\n\n')
-log_file.flush()
-
-recipe = get_postproc_recipe_details('{}')
-if not recipe:
-    result = {{"success": False, "error": "Recipe not found"}}
-    log_file.write('ERROR: Recipe not found\n')
-    log_file.write('Result: ' + json.dumps(result) + '\n')
-    log_file.close()
-    print(json.dumps(result), flush=True)
-    sys.exit(1)
-
-log_file.write('Command: ' + recipe['command'] + '\n\n')
-log_file.flush()
-
-# Execute with progress callback
-def progress_callback(stream, line):
-    log_file.write(f'[{{stream}}] {{line}}\n')
-    log_file.flush()
-    print(json.dumps({{"type": "progress", "stream": stream, "line": line}}), flush=True)
-
-log_file.write('=== Executing Command ===\n')
-log_file.flush()
-
-result = execute_post_processing(
-    recipe['command'],
-    '{}',
-    recipe.get('env_vars', {{}}),
-    progress_callback
-)
-
-log_file.write('\n=== Command Completed ===\n')
-log_file.write('Return Code: ' + str(result.get('return_code', 'unknown')) + '\n')
-log_file.write('Success: ' + str(result.get('success', False)) + '\n')
-log_file.write('STDOUT Length: ' + str(len(result.get('stdout', ''))) + '\n')
-log_file.write('STDERR Length: ' + str(len(result.get('stderr', ''))) + '\n')
-log_file.write('\nFull Result:\n' + json.dumps(result, indent=2) + '\n')
-log_file.close()
-
-print(json.dumps(result), flush=True)
-"#,
-        log_path_str.replace("'", "\\'").replace("\\", "\\\\"),
-        recipe_name.replace("'", "\\'"),
-        working_directory.replace("'", "\\'"),
-        recipe_name.replace("'", "\\'"),
-        working_directory.replace("'", "\\'")
-    );
-
-    // Execute Python script
-    let mut child = Command::new(&python_path)
-        .args(&["-c", &script])
+    let mut command = Command::new(&cmd);
+    command.args(&args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to start post-processing: {}", e))?;
 
@@ -614,22 +597,17 @@ print(json.dumps(result), flush=True)
 
 #[tauri::command]
 fn get_recipes() -> Result<Vec<Recipe>, String> {
-    // Call Python to get recipe list
-    let python_code = r#"
-import sys
-import json
-sys.path.insert(0, '../..')
-from imgstax.recipe_loader import get_recipe_details
-recipes = get_recipe_details()
-print(json.dumps(recipes))
-"#;
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--get-recipes-json".to_string());
 
-    // Call Python to get recipe list
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(python_code)
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -637,10 +615,8 @@ print(json.dumps(recipes))
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let recipes: Vec<Recipe> = serde_json::from_str(&stdout)
-        .map_err(|e| format!("Failed to parse recipes: {}", e))?;
-
-    Ok(recipes)
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse recipes: {}", e))
 }
 
 #[tauri::command]

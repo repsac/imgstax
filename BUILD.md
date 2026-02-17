@@ -53,6 +53,7 @@ This will:
 - Create a standalone `imgstax` executable in `dist/imgstax`
 - Copy the binary to `desktop-app/src-tauri/binaries/` with the correct platform-specific name
 - Include all Python dependencies and recipe files
+- **On Windows**: Creates both MSVC and GNU variants for cross-toolchain compatibility
 
 ### 2. Build the Desktop App
 
@@ -155,7 +156,8 @@ To build for multiple platforms:
 - **Note**: Apple Silicon binaries can run on Intel Macs via Rosetta 2, but with performance overhead
 
 **Windows**:
-- x64 (most common): Produces `x86_64-pc-windows-msvc` binaries
+- x64 (most common): Produces both `x86_64-pc-windows-msvc` and `x86_64-pc-windows-gnu` binaries
+- Both toolchain variants are created automatically for cross-toolchain compatibility
 - ARM64 (Surface, Snapdragon): Requires ARM64 Rust target
 
 **Linux**:
@@ -211,8 +213,11 @@ codesign --deep --force --verify --verbose --sign "Developer ID Application: You
 ```
 
 ### Windows
-**Binary format**: `imgstax-{arch}-pc-windows-msvc.exe`
-- Example: `imgstax-x86_64-pc-windows-msvc.exe`
+**Binary format**: `imgstax-{arch}-pc-windows-{msvc|gnu}.exe`
+- The build script automatically creates both MSVC and GNU variants:
+  - `imgstax-x86_64-pc-windows-msvc.exe`
+  - `imgstax-x86_64-pc-windows-gnu.exe`
+- This ensures compatibility regardless of which Rust toolchain is active
 
 **Prerequisites**:
 1. Install [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/) with:
@@ -236,37 +241,34 @@ codesign --deep --force --verify --verbose --sign "Developer ID Application: You
 
 **Building**:
 
-⚠️ **IMPORTANT**: Windows builds **must** use the MSVC toolchain and be run from a **Developer Command Prompt**.
-
 ```powershell
-# Open "Developer Command Prompt for VS 2022" or "x64 Native Tools Command Prompt for VS 2022" from Start Menu
-# Then navigate to the project:
-cd /d F:\REPOS\imgstax
+# From any command prompt (PowerShell, CMD, or Terminal)
+# Navigate to the project:
+cd F:\REPOS\imgstax
 
-# Set MSVC toolchain for this project
-cd desktop-app
-rustup override set stable-msvc
-
-# Build
-cd ..
+# Build the Python binary (creates both MSVC and GNU variants)
 python build_binary.py
+
+# Build the desktop app
 cd desktop-app
 npm run tauri build
 ```
 
-**Why Developer Command Prompt?**
-- The MSVC toolchain requires Visual Studio environment variables
-- Regular PowerShell/CMD won't have the necessary compiler paths
-- The GNU toolchain (MinGW) has linking issues with Tauri on Windows
+**Notes**:
+- The `build_binary.py` script automatically creates both MSVC and GNU binary variants
+- Either Rust toolchain (MSVC or GNU) will work for the Tauri build
+- MSVC toolchain is recommended for best compatibility
+- No special command prompt needed - regular PowerShell/CMD works fine
 
 **Output location**: `desktop-app/src-tauri/target/release/bundle/`
-- `.msi` installer in `msi/` (includes WebView2 runtime ~197MB)
+- `.msi` installer in `msi/`
+
+> **Note**: The MSI does not bundle the WebView2 runtime. WebView2 is pre-installed on all Windows 10 (May 2020 update or later) and Windows 11 systems via Microsoft Edge. If a user encounters a WebView2 error, see the Troubleshooting section below.
 
 **Troubleshooting**:
-- If you get "MSVC not found" errors, make sure you're in a Developer Command Prompt
 - If you get `cd` not working: use `cd /d F:\path` to change drives
 - Windows Defender may flag the build process - add an exclusion for your project directory
-- **Dev mode is not supported on Windows** - use production builds only (takes ~30 seconds)
+- If the build fails looking for a binary, ensure `build_binary.py` completed successfully
 
 ### Linux
 **Binary format**: `imgstax-{arch}-unknown-linux-gnu`
@@ -375,6 +377,11 @@ cp -r desktop-app/dist/* dist/
 - Submit to Microsoft for analysis if needed
 - Users may need to add security exception
 
+**Windows**: App fails to launch with a WebView2 error
+- The app requires the Microsoft WebView2 Runtime (pre-installed on Windows 10 May 2020 update+ and Windows 11)
+- If missing, download and install it from: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+- Install the "Evergreen Standalone Installer" for the user's architecture (x64 for most machines)
+
 **Linux**: Missing system libraries
 ```bash
 # Install WebKit dependencies
@@ -388,7 +395,7 @@ sudo apt install libwebkit2gtk-4.0-dev
 
 **Typical sizes**:
 - macOS DMG: ~50-90 MB
-- Windows MSI: ~40-80 MB
+- Windows MSI: ~40-80 MB (WebView2 not bundled; relies on system installation)
 - Linux AppImage: ~50-85 MB
 
 These sizes are normal for standalone Python applications that bundle the runtime, NumPy, Pillow, and other dependencies.
