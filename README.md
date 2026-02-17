@@ -73,6 +73,17 @@ Process multiple stacking jobs efficiently:
 - **Mean**: Noise reduction, smooth motion blur
 - **Median**: Remove transient objects
 
+### Post-Processing
+
+Automatically run a shell command after stacking completes — great for generating a video from your stacked frames:
+
+- Select a post-process from the **Post-Process** dropdown (above the Stack button)
+- Runs automatically after stacking or after each job in a batch queue
+- Built-in recipes for ffmpeg video creation (30fps MP4)
+- Create custom recipes with the Post-Processing Recipe Editor
+- Progress shown in the same dialog as stacking
+- Errors are reported with full details; logs saved to the output directory
+
 ### Advanced Options
 
 - **Trail Gradient**: Comet tail effect with progressive fade
@@ -135,7 +146,15 @@ Choose where your stacked images will be saved. Each export creates a timestampe
 - `metadata.json` with settings used
 - `recipe.yaml` (if "Export recipe" is checked)
 
-### 5. Stack Images
+### 5. (Optional) Select a Post-Process
+
+Choose a post-processing command to run automatically after stacking:
+
+1. Select a recipe from the **Post-Process** dropdown above the Stack button
+2. Built-in options include ffmpeg video creation (30fps MP4)
+3. Leave blank to skip post-processing
+
+### 6. Stack Images
 
 **Single Export**: Click "Stack Images" to process immediately
 
@@ -228,6 +247,57 @@ The queue system enables efficient batch processing:
 4. Cancel current job or entire queue during processing
 
 ![Queue Dialog](docs/screenshots/imgstax-QueueDialog.webp)
+
+---
+
+## Post-Processing
+
+After stacking completes, imgstax can automatically run a shell command in the output directory — the most common use is generating a video from the stacked image sequence.
+
+### Built-in Post-Processing Recipes
+
+| Recipe | Platform | What it does |
+|--------|----------|--------------|
+| **FFmpeg Video (30fps)** | macOS / Linux | Creates `output.mp4` from stacked JPEG frames at 30fps |
+| **FFmpeg Video (30fps) - Windows** | Windows | Same, using PowerShell syntax |
+
+> **Requires ffmpeg**: Install via `brew install ffmpeg` (macOS), your package manager (Linux), or [ffmpeg.org](https://ffmpeg.org/download.html) (Windows).
+
+### Creating Post-Processing Recipes
+
+1. Select **"✎ Post-Process Editor"** from the Post-Process dropdown
+2. Fill in the details:
+   - **Name**: Short descriptive name
+   - **Command**: Shell command to run (bash on macOS/Linux, PowerShell on Windows)
+   - **Working Directory**: `output` (stacked images) or `input` (source images)
+   - **OS Compatibility**: Limit the recipe to specific platforms
+   - **Environment Variables**: Optional JSON key/value pairs
+3. Click **Save Recipe**
+
+**Example commands:**
+
+```bash
+# Create video at 24fps with custom output name
+ffmpeg -f concat -safe 0 -i <(ls -1 *.jpg | sort | sed 's/^/file /') -r 24 -c:v libx264 -pix_fmt yuv420p timelapse.mp4
+
+# Create GIF (requires ImageMagick)
+convert -delay 5 -loop 0 *.jpg animation.gif
+```
+
+> **Tip:** The command runs with the working directory set to your output folder. Existing files will not be overwritten automatically — delete or rename `output.mp4` before re-running to avoid errors.
+
+### Linking a Post-Process to a Recipe
+
+In the **Recipe Editor**, use the **Post-Process** field to automatically select a post-process whenever the recipe is loaded. This is useful for workflows like "stars recipe → always generate a video".
+
+### Post-Processing Error Logs
+
+If a post-process fails, two log files are saved in the output directory:
+
+- `postproc.log` — Python-side log: command, subprocess output, return code
+- `postproc_rust.log` — Rust-side log: what the backend received and returned
+
+Logs are automatically deleted on success to keep the output directory clean.
 
 ---
 
@@ -380,6 +450,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions and [BUIL
 - Large images take time per frame
 - Check activity monitor/task manager for CPU usage
 - App is likely processing normally
+
+**Post-processing fails or shows an error**
+- Check `postproc.log` in the output directory for the full error
+- Most common cause: output file already exists (e.g. `output.mp4`) — delete it and retry
+- Ensure the required tool (e.g. `ffmpeg`) is installed and on your PATH
+- On Windows, commands use PowerShell syntax; on macOS/Linux, bash syntax
 
 ---
 
