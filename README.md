@@ -161,6 +161,21 @@ Choose where your stacked images will be saved. Each export creates a timestampe
 | **fireworks** | maximum | 10 | No | Firework composites |
 | **noise-reduction** | mean | 0 | No | Noise reduction averaging |
 
+> **Gradient tip — stacking mode matters:** The comet tail effect depends on the contrast between your subject and its background.
+> - **Bright subjects on dark backgrounds** (stars, fireworks): use **maximum** stacking. Bright pixels stay visible against the dark background even after fading.
+> - **Dark subjects on bright backgrounds** (birds, aircraft): use **minimum** stacking. With maximum stacking, dark subject pixels are immediately overwhelmed by the bright background and the trail disappears within 1–2 frames.
+>
+> To control trail length, adjust the **Gradient Decay** value. The default (0.85) suits star trails. For bird murmurations and other short sequences, try 0.95–0.97:
+>
+> | Decay | Approximate Visible Trail |
+> |---|---|
+> | 0.85 (default) | ~8 frames |
+> | 0.92 | ~17 frames |
+> | 0.95 | ~25 frames |
+> | 0.97 | ~40 frames |
+>
+> See the [CLI documentation](README-CLI.md#gradient-and-subject-contrast-choosing-the-right-stacking-mode) for a detailed explanation.
+
 ### Creating Custom Recipes
 
 1. Select "✎ Recipe Editor" from the recipe dropdown
