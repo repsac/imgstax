@@ -39,7 +39,8 @@ def build_binary():
         "--name=imgstax",
         "--onefile",  # Single executable
         "--console",  # CLI app
-        "--add-data", "imgstax/recipes:imgstax/recipes",  # Include recipes
+        "--add-data", "imgstax/recipes:imgstax/recipes",  # Include stacking recipes
+        "--add-data", "imgstax/postproc_recipes:imgstax/postproc_recipes",  # Include post-processing recipes
         "imgstax_launcher.py",  # Entry point (wrapper script with absolute imports)
     ]
 
@@ -54,7 +55,7 @@ def build_binary():
         print(result.stderr)
         sys.exit(1)
 
-    print("\n✓ Build successful!")
+    print("\nBuild successful!")
 
     # PyInstaller binary naming
     import platform
@@ -84,16 +85,31 @@ def build_binary():
         if system == "darwin":
             target_name = f"imgstax-{rust_arch}-apple-darwin"
         elif system == "windows":
-            target_name = f"imgstax-{rust_arch}-pc-windows-msvc.exe"
+            # Create both MSVC and GNU variants for Windows
+            # (Tauri may use either toolchain depending on configuration)
+            target_name_msvc = f"imgstax-{rust_arch}-pc-windows-msvc.exe"
+            target_name_gnu = f"imgstax-{rust_arch}-pc-windows-gnu.exe"
+
+            target_path_msvc = desktop_bin_dir / target_name_msvc
+            target_path_gnu = desktop_bin_dir / target_name_gnu
+
+            shutil.copy2(binary_path, target_path_msvc)
+            shutil.copy2(binary_path, target_path_gnu)
+
+            print(f"\nCopied binary to:")
+            print(f"  - {target_path_msvc}")
+            print(f"  - {target_path_gnu}")
+            target_path = target_path_msvc  # For next steps message
+            target_name = target_name_msvc
         elif system == "linux":
             target_name = f"imgstax-{rust_arch}-unknown-linux-gnu"
         else:
             target_name = "imgstax"
 
-        target_path = desktop_bin_dir / target_name
-        shutil.copy2(binary_path, target_path)
-
-        print(f"\n✓ Copied binary to: {target_path}")
+        if system != "windows":
+            target_path = desktop_bin_dir / target_name
+            shutil.copy2(binary_path, target_path)
+            print(f"\nCopied binary to: {target_path}")
         print("\nNext steps:")
         print("1. Update desktop-app/src-tauri/tauri.conf.json to include the binary")
         print("2. Update lib.rs to use the bundled binary instead of hardcoded Python path")
