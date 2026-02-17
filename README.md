@@ -102,13 +102,7 @@ Automatically run a shell command after stacking completes — great for generat
 **macOS**:
 1. Download the `.dmg` file from [Releases](https://github.com/repsac/imgstax/releases/latest)
 2. Open the DMG and drag imgstax to Applications
-3. **First launch only:** The app may be blocked by macOS Gatekeeper. To unblock:
-   - Open Terminal
-   - Type: `sudo xattr -rd com.apple.quarantine` (don't press Enter yet)
-   - Drag imgstax.app from Applications into Terminal (adds the path)
-   - Press Enter and enter your password when prompted
-
-   *Note: Right-click → Open sometimes works but is not always reliable.*
+3. Launch the app normally. If macOS shows a "damaged and can't be opened" or Gatekeeper warning, see the [macOS Troubleshooting](#app-wont-open-on-macos) section below.
 
 ![Install MacOS](docs/screenshots/imgstax-InstallMacOS.webp)
 
@@ -432,9 +426,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions and [BUIL
 - Remove any non-image files from input directory
 
 **App won't open on macOS**
-- Right-click → Open (first launch only)
-- Go to System Settings → Privacy & Security to allow
-- macOS Gatekeeper blocks unsigned apps by default
+
+If macOS shows _"imgstax.app is damaged and can't be opened. You should move it to the trash"_, this is a Gatekeeper quarantine issue, not actual damage. Try the following in order:
+
+1. **Remove Quarantine Attribute (most effective):** Open Terminal and run:
+   ```
+   sudo xattr -rd com.apple.quarantine /Applications/imgstax.app
+   ```
+   Enter your password when prompted, then launch the app normally.
+
+2. **Force Open:** Right-click (or Control-click) imgstax in the Applications folder and select "Open". Click "Open" again in the dialog that appears.
+
+3. **Check Security Settings:** Go to System Settings > Privacy & Security. If a message about imgstax appears at the bottom, click "Open Anyway".
 
 **Windows Defender warning**
 - Click "More info" → "Run anyway"
