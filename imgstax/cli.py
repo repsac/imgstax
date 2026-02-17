@@ -3,10 +3,11 @@ import logging
 import argparse
 import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .config import StackConfig
-from .image_utils import get_stacking_function
-from .core import stack
+if TYPE_CHECKING:
+    from .config import StackConfig
+
 from .recipe_loader import (
     load_recipe,
     get_recipe_details,
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 PREFIX = 'stacked-'
 
 
-def setup_output(config: StackConfig) -> None:
+def setup_output(config: 'StackConfig') -> None:
     """Set up output directory and metadata.
 
     Args:
@@ -293,6 +294,12 @@ def main() -> None:
     # Validate input is provided (unless listing recipes)
     if not args.input:
         parser.error("the following arguments are required: input")
+
+    # Heavy imports deferred until here so lightweight subcommands (--postproc-list, etc.)
+    # don't pay the numpy/PIL startup cost.
+    from .config import StackConfig
+    from .image_utils import get_stacking_function
+    from .core import stack
 
     # Load recipe if specified
     recipe_settings = {}
