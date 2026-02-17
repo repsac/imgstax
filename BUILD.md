@@ -261,7 +261,9 @@ npm run tauri build
 - No special command prompt needed - regular PowerShell/CMD works fine
 
 **Output location**: `desktop-app/src-tauri/target/release/bundle/`
-- `.msi` installer in `msi/` (includes WebView2 runtime ~120MB)
+- `.msi` installer in `msi/`
+
+> **Note**: The MSI does not bundle the WebView2 runtime. WebView2 is pre-installed on all Windows 10 (May 2020 update or later) and Windows 11 systems via Microsoft Edge. If a user encounters a WebView2 error, see the Troubleshooting section below.
 
 **Troubleshooting**:
 - If you get `cd` not working: use `cd /d F:\path` to change drives
@@ -375,6 +377,11 @@ cp -r desktop-app/dist/* dist/
 - Submit to Microsoft for analysis if needed
 - Users may need to add security exception
 
+**Windows**: App fails to launch with a WebView2 error
+- The app requires the Microsoft WebView2 Runtime (pre-installed on Windows 10 May 2020 update+ and Windows 11)
+- If missing, download and install it from: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+- Install the "Evergreen Standalone Installer" for the user's architecture (x64 for most machines)
+
 **Linux**: Missing system libraries
 ```bash
 # Install WebKit dependencies
@@ -388,7 +395,7 @@ sudo apt install libwebkit2gtk-4.0-dev
 
 **Typical sizes**:
 - macOS DMG: ~50-90 MB
-- Windows MSI: ~40-80 MB
+- Windows MSI: ~40-80 MB (WebView2 not bundled; relies on system installation)
 - Linux AppImage: ~50-85 MB
 
 These sizes are normal for standalone Python applications that bundle the runtime, NumPy, Pillow, and other dependencies.
