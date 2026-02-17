@@ -520,7 +520,12 @@ imgstax focuses on **progressive sequential stacking for animations**, not singl
 
 ## Version History
 
-### v2.1.0 (Current)
+### v2.2.0 (Current)
+- **Post-Processing System**: Run shell commands (ffmpeg, etc.) after stacking completes
+- **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support
+- **Gradient Documentation**: Detailed guide on stacking mode selection for subject contrast
+
+### v2.1.0
 - **Recipe System**: YAML-based presets for common use cases
 - **Trail Gradient**: Comet tail effect with exponential decay weighting
 - **Auto-prefix Exports**: Prevents accidental git commits with 'export_' prefix

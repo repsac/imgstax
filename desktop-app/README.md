@@ -89,8 +89,8 @@ npm run dev
 npm run build
 
 # Build output locations:
-# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.1.0_x64.dmg
-# Windows: src-tauri/target/release/bundle/msi/imgstax_2.1.0_x64_en-US.msi
+# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.2.0_x64.dmg
+# Windows: src-tauri/target/release/bundle/msi/imgstax_2.2.0_x64_en-US.msi
 # Linux:   src-tauri/target/release/bundle/appimage/imgstax.AppImage
 ```
 
