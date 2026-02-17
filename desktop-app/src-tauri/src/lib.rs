@@ -297,27 +297,29 @@ struct PostProcRecipe {
 }
 
 #[tauri::command]
-fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
-    args.push("--postproc-list".to_string());
+async fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (cmd, mut args) = get_imgstax_cmd();
+        args.push("--postproc-list".to_string());
 
-    let mut command = Command::new(&cmd);
-    command.args(&args);
+        let mut command = Command::new(&cmd);
+        command.args(&args);
 
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
 
-    let output = command.output()
-        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+        let output = command.output()
+            .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python error: {}", stderr));
-    }
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Python error: {}", stderr));
+        }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("Failed to parse recipes: {}", e))
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        serde_json::from_str(stdout.trim())
+            .map_err(|e| format!("Failed to parse recipes: {}", e))
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
