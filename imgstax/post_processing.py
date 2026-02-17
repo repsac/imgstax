@@ -53,8 +53,13 @@ def execute_post_processing(
         if system == 'Windows':
             # Use PowerShell on Windows for better command support
             shell_cmd = ['powershell.exe', '-NoProfile', '-Command', command]
+        elif system == 'Darwin':
+            # macOS: use a login shell so ~/.zprofile is sourced, which adds
+            # Homebrew paths (/opt/homebrew/bin) that GUI apps don't inherit
+            user_shell = os.environ.get('SHELL', '/bin/zsh')
+            shell_cmd = [user_shell, '-l', '-c', command]
         else:
-            # Use bash on Unix-like systems (macOS, Linux)
+            # Linux
             shell_cmd = ['/bin/bash', '-c', command]
 
         logger.debug(f"Using shell: {shell_cmd[0]}")
