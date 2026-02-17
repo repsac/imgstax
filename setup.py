@@ -5,11 +5,11 @@ from pathlib import Path
 
 # Read the contents of README file
 readme_file = Path(__file__).parent / 'README.md'
-long_description = readme_file.read_text() if readme_file.exists() else ''
+long_description = readme_file.read_text(encoding='utf-8') if readme_file.exists() else ''
 
 setup(
     name='imgstax',
-    version='2.1.0',
+    version='2.2.0',
     author='Ed Caspersen',
     description='Image stacking tool for creating artistic effects and long exposures',
     long_description=long_description,
