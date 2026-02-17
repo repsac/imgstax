@@ -1138,8 +1138,12 @@ async function startBatchProcessing() {
 
 // Initialize
 async function init() {
+    const t0 = performance.now();
+    const _t = (label) => console.log(`[init] ${label}: +${(performance.now() - t0).toFixed(0)}ms`);
+
     // Try to restore saved window position first
     const restored = await restoreWindowPosition();
+    _t('restoreWindowPosition');
 
     // If no saved position, dynamically size window to 80% of screen height
     if (!restored) {
@@ -1159,6 +1163,7 @@ async function init() {
         } catch (error) {
             console.error('Failed to resize window:', error);
         }
+        _t('window resize/center');
     }
 
     // Save window position when it moves or resizes
@@ -1170,35 +1175,44 @@ async function init() {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveWindowPosition, 500);
     });
+    _t('listen move');
 
     await listen('tauri://resize', () => {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveWindowPosition, 500);
     });
+    _t('listen resize');
 
     // Save position when window closes
     await listen('tauri://close-requested', () => {
         saveWindowPosition();
     });
+    _t('listen close-requested');
 
     // Load and apply preferences
     loadPreferences();
+    _t('loadPreferences');
 
-    // Refresh recipe dropdown to include user recipes
-    await refreshRecipeDropdown();
-
-    // Refresh post-process dropdown in background — subprocess call, no need to block UI
-    refreshPostProcDropdown();
-
+    // Get version immediately — trivial Rust call, must not be blocked by subprocess invokes
     try {
         const version = await invoke('get_app_version');
         statusEl.textContent = `imgstax v${version}`;
     } catch (error) {
         statusEl.textContent = `Error: ${error}`;
     }
+    _t('get_app_version');
+
+    // Refresh recipe dropdown to include user recipes
+    await refreshRecipeDropdown();
+    _t('refreshRecipeDropdown');
+
+    // Refresh post-process dropdown in background — subprocess call, no need to block UI
+    // list_postproc_recipes is async in Rust (spawn_blocking) so it won't block other invokes
+    refreshPostProcDropdown();
 
     // Load queue on startup
     loadQueue();
+    _t('loadQueue — init complete');
 
     // Set up queue event delegation
     setupQueueEventDelegation();
