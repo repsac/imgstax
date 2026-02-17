@@ -1187,8 +1187,8 @@ async function init() {
     // Refresh recipe dropdown to include user recipes
     await refreshRecipeDropdown();
 
-    // Refresh post-process dropdown to include recipes
-    await refreshPostProcDropdown();
+    // Refresh post-process dropdown in background — subprocess call, no need to block UI
+    refreshPostProcDropdown();
 
     try {
         const version = await invoke('get_app_version');
