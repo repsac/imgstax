@@ -246,7 +246,7 @@ options:
 The `--trail-gradient` option creates a comet tail effect where the trail progressively fades along its length, with the newest frame at full intensity and older frames gradually decreasing.
 
 **How it works:**
-- Uses exponential decay weighting (0.85 decay factor)
+- Uses exponential decay weighting (default 0.85 decay factor)
 - Newest frame: 100% intensity
 - Older frames: progressively reduced intensity
 - Creates smooth, natural-looking motion trails
@@ -266,6 +266,51 @@ imgstax traffic_images/ -t 20 -g -s maximum
 ```
 
 **Note:** Requires `--trail-length` to be set (> 0).
+
+---
+
+### Gradient and Subject Contrast: Choosing the Right Stacking Mode
+
+The visible length of a gradient trail depends on the **contrast between your subject and its background**. This is the most important factor when tuning the gradient effect.
+
+#### Bright subjects on dark backgrounds (e.g. star trails, fireworks)
+
+Use **maximum stacking**. Old bright pixels (e.g. stars at ~250) are weighted down but remain brighter than the dark background (~10–20), so the trail stays visible for many frames.
+
+```bash
+imgstax stars/ -t 30 -g -s maximum --gradient-decay 0.85
+```
+
+#### Dark subjects on bright backgrounds (e.g. bird murmurations, aircraft)
+
+Use **minimum stacking**. With maximum stacking, dark subject pixels (~50–80) get weighted below the bright sky (~180–220) almost immediately — the trail is invisible after 1–2 frames. Minimum stacking fades old pixels toward white, keeping them darker than the sky background so the trail shows as a dark smear.
+
+```bash
+imgstax birds/ -t 30 -g -s minimum --gradient-decay 0.95
+```
+
+> **Why maximum stacking fails for dark subjects:** With `decay=0.85`, a dark bird pixel (~60) after just one frame of decay becomes `60 × 0.85 = 51`. The sky in the new frame is ~200. `max(200, 51) = 200` — the trail is immediately erased by the background.
+
+#### Choosing a decay factor
+
+The default decay of `0.85` works well for star trails but fades quickly for subjects with lower contrast against their background. Use a higher value for longer trails:
+
+| Decay Factor | Approximate Visible Trail |
+|---|---|
+| 0.85 (default) | ~8 frames |
+| 0.92 | ~17 frames |
+| 0.95 | ~25 frames |
+| 0.97 | ~40 frames |
+
+These estimates assume a subject/background contrast ratio typical of dark birds on sky (~60 vs ~200). Star trails on dark sky will show significantly longer trails at the same decay value.
+
+```bash
+# Bird murmurations — minimum stacking, higher decay for longer trail
+imgstax birds/ -t 35 -g -s minimum --gradient-decay 0.95
+
+# Fine-tune the plateau (frames at full intensity before decay begins)
+imgstax birds/ -t 35 -g -s minimum --gradient-decay 0.95 --gradient-plateau 3
+```
 
 ## Supported Image Formats
 
