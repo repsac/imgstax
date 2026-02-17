@@ -3,10 +3,11 @@ import logging
 import argparse
 import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .config import StackConfig
-from .image_utils import get_stacking_function
-from .core import stack
+if TYPE_CHECKING:
+    from .config import StackConfig
+
 from .recipe_loader import (
     load_recipe,
     get_recipe_details,
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 PREFIX = 'stacked-'
 
 
-def setup_output(config: StackConfig) -> None:
+def setup_output(config: 'StackConfig') -> None:
     """Set up output directory and metadata.
 
     Args:
@@ -99,6 +100,38 @@ def main() -> None:
                         action='store_true',
                         help="Output progress as JSON lines (for GUI integration)")
 
+    # Stacking recipe listing as JSON (used by desktop app in bundled mode)
+    parser.add_argument('--get-recipes-json',
+                        action='store_true',
+                        help="List all stacking recipes as JSON and exit")
+
+    # Post-processing recipe management (used by desktop app in bundled mode)
+    parser.add_argument('--postproc-list',
+                        action='store_true',
+                        help="List all post-processing recipes as JSON")
+
+    parser.add_argument('--postproc-get',
+                        metavar='RECIPE_NAME',
+                        help="Get post-processing recipe details as JSON")
+
+    parser.add_argument('--postproc-save',
+                        metavar='RECIPE_JSON',
+                        help="Save a post-processing recipe from JSON string")
+
+    parser.add_argument('--postproc-delete',
+                        metavar='RECIPE_PATH',
+                        help="Delete a post-processing recipe by path")
+
+    parser.add_argument('--postproc-execute',
+                        metavar='RECIPE_NAME',
+                        help="Execute a post-processing recipe (requires --working-dir)")
+
+    parser.add_argument('--working-dir',
+                        help="Working directory for post-processing execution")
+
+    parser.add_argument('--log-file',
+                        help="Log file path for post-processing output")
+
     parser.add_argument('--start-frame',
                         type=int,
                         help="First frame to include in stack (0-based, inclusive)")
@@ -171,9 +204,102 @@ def main() -> None:
                 print()
         sys.exit(0)
 
+    # Handle stacking recipe JSON listing (early exit, input not required)
+    if args.get_recipes_json:
+        import json as _json
+        from .recipe_loader import get_recipe_details as _get_recipe_details
+        print(_json.dumps(_get_recipe_details()))
+        sys.exit(0)
+
+    # Handle post-processing commands (early exit, input directory not required)
+    if args.postproc_list:
+        import json as _json
+        from .postproc_recipe_loader import list_postproc_recipes as _list_postproc
+        print(_json.dumps(_list_postproc()))
+        sys.exit(0)
+
+    if args.postproc_get:
+        import json as _json
+        from .postproc_recipe_loader import get_postproc_recipe_details as _get_recipe
+        recipe = _get_recipe(args.postproc_get)
+        print(_json.dumps(recipe) if recipe else 'null')
+        sys.exit(0)
+
+    if args.postproc_save:
+        import json as _json
+        from .postproc_recipe_loader import save_postproc_recipe as _save_recipe
+        recipe = _json.loads(args.postproc_save)
+        path = _save_recipe(recipe)
+        print(str(path))
+        sys.exit(0)
+
+    if args.postproc_delete:
+        from .postproc_recipe_loader import delete_postproc_recipe as _delete_recipe
+        result = _delete_recipe(args.postproc_delete)
+        print('true' if result else 'false')
+        sys.exit(0)
+
+    if args.postproc_execute:
+        import json as _json
+        if not args.working_dir:
+            print('Error: --working-dir required with --postproc-execute', file=sys.stderr)
+            sys.exit(1)
+        from .postproc_recipe_loader import get_postproc_recipe_details as _get_recipe
+        from .post_processing import execute_post_processing as _execute
+
+        log_file = None
+        if args.log_file:
+            log_file = open(args.log_file, 'w', encoding='utf-8')
+            log_file.write('=== Post-Processing Log ===\n')
+            log_file.write(f'Recipe: {args.postproc_execute}\n')
+            log_file.write(f'Working Directory: {args.working_dir}\n\n')
+            log_file.flush()
+
+        recipe = _get_recipe(args.postproc_execute)
+        if not recipe:
+            result = {'success': False, 'error': 'Recipe not found'}
+            if log_file:
+                log_file.write('ERROR: Recipe not found\n')
+                log_file.close()
+            print(_json.dumps(result), flush=True)
+            sys.exit(1)
+
+        if log_file:
+            log_file.write(f"Command: {recipe['command']}\n\n")
+            log_file.write('=== Executing Command ===\n')
+            log_file.flush()
+
+        def progress_callback(stream, line):
+            if log_file:
+                log_file.write(f'[{stream}] {line}\n')
+                log_file.flush()
+            print(_json.dumps({'type': 'progress', 'stream': stream, 'line': line}), flush=True)
+
+        result = _execute(
+            recipe['command'],
+            args.working_dir,
+            recipe.get('env_vars', {}),
+            progress_callback
+        )
+
+        if log_file:
+            log_file.write('\n=== Command Completed ===\n')
+            log_file.write(f"Return Code: {result.get('return_code', 'unknown')}\n")
+            log_file.write(f"Success: {result.get('success', False)}\n")
+            log_file.close()
+
+        print(_json.dumps(result), flush=True)
+        sys.exit(0)
+
     # Validate input is provided (unless listing recipes)
     if not args.input:
         parser.error("the following arguments are required: input")
+
+    # Heavy imports deferred until here so lightweight subcommands (--postproc-list, etc.)
+    # don't pay the numpy/PIL startup cost.
+    from .config import StackConfig
+    from .image_utils import get_stacking_function
+    from .core import stack
 
     # Load recipe if specified
     recipe_settings = {}

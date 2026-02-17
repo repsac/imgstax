@@ -1,0 +1,168 @@
+"""Post-processing command execution for stacked images."""
+
+import logging
+import subprocess
+import os
+import threading
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+
+def execute_post_processing(
+    command: str,
+    working_directory: str,
+    env_vars: Optional[Dict[str, str]] = None,
+    progress_callback=None
+) -> Dict[str, Any]:
+    """Execute a post-processing command.
+
+    Args:
+        command: Shell command to execute
+        working_directory: Directory to run command in
+        env_vars: Optional environment variables to add/override
+        progress_callback: Optional callback function for progress updates
+
+    Returns:
+        Dict with 'success', 'stdout', 'stderr', 'return_code'
+
+    Raises:
+        ValueError: If working directory doesn't exist
+    """
+    work_dir = Path(working_directory)
+    if not work_dir.exists():
+        raise ValueError(f"Working directory does not exist: {working_directory}")
+
+    if not work_dir.is_dir():
+        raise ValueError(f"Working directory is not a directory: {working_directory}")
+
+    logger.info(f"Executing post-processing command in {working_directory}")
+    logger.debug(f"Command: {command}")
+
+    # Build environment: inherit user's environment and add custom vars
+    env = os.environ.copy()
+    if env_vars:
+        env.update(env_vars)
+        logger.debug(f"Added environment variables: {list(env_vars.keys())}")
+
+    try:
+        # Execute command using OS-appropriate shell
+        import platform
+        system = platform.system()
+
+        if system == 'Windows':
+            # Use PowerShell on Windows for better command support
+            shell_cmd = ['powershell.exe', '-NoProfile', '-Command', command]
+        elif system == 'Darwin':
+            # macOS: use a login shell so ~/.zprofile is sourced, which adds
+            # Homebrew paths (/opt/homebrew/bin) that GUI apps don't inherit
+            user_shell = os.environ.get('SHELL', '/bin/zsh')
+            shell_cmd = [user_shell, '-l', '-c', command]
+        else:
+            # Linux
+            shell_cmd = ['/bin/bash', '-c', command]
+
+        logger.debug(f"Using shell: {shell_cmd[0]}")
+
+        process = subprocess.Popen(
+            shell_cmd,
+            cwd=str(work_dir),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+
+        # Collect output — read stdout and stderr in separate threads to
+        # prevent pipe buffer deadlocks (e.g. ffmpeg writes heavily to stderr
+        # while stdout is idle, filling the 64KB pipe buffer and stalling).
+        stdout_lines = []
+        stderr_lines = []
+        callback_lock = threading.Lock()
+
+        def read_stream(pipe, lines, stream_name):
+            for line in pipe:
+                line = line.rstrip()
+                lines.append(line)
+                logger.debug(f"{stream_name.upper()}: {line}")
+                if progress_callback:
+                    with callback_lock:
+                        progress_callback(stream_name, line)
+
+        stdout_thread = threading.Thread(
+            target=read_stream, args=(process.stdout, stdout_lines, 'stdout'), daemon=True)
+        stderr_thread = threading.Thread(
+            target=read_stream, args=(process.stderr, stderr_lines, 'stderr'), daemon=True)
+
+        stdout_thread.start()
+        stderr_thread.start()
+
+        stdout_thread.join()
+        stderr_thread.join()
+        return_code = process.wait()
+
+        stdout = '\n'.join(stdout_lines)
+        stderr = '\n'.join(stderr_lines)
+
+        # Check for error patterns in stderr even if return code is 0
+        # Some commands (like ffmpeg) exit with 0 even when they fail
+        error_patterns = [
+            'error opening',
+            'error:',
+            'failed to',
+            'could not',
+            'not overwriting',
+            'permission denied',
+            'no such file',
+        ]
+
+        stderr_lower = stderr.lower()
+        has_error_in_stderr = any(pattern in stderr_lower for pattern in error_patterns)
+
+        success = (return_code == 0) and not has_error_in_stderr
+
+        if success:
+            logger.info(f"Post-processing completed successfully (return code: {return_code})")
+        else:
+            if has_error_in_stderr:
+                logger.error(f"Post-processing detected errors in output (return code: {return_code})")
+            else:
+                logger.error(f"Post-processing failed with return code: {return_code}")
+            if stderr:
+                logger.error(f"Error output: {stderr}")
+
+        return {
+            'success': success,
+            'stdout': stdout,
+            'stderr': stderr,
+            'return_code': return_code
+        }
+
+    except Exception as e:
+        logger.error(f"Post-processing execution failed: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'stdout': '',
+            'stderr': str(e),
+            'return_code': -1
+        }
+
+
+def validate_command(command: str) -> bool:
+    """Basic validation of command string.
+
+    Args:
+        command: Command string to validate
+
+    Returns:
+        True if command appears valid
+    """
+    if not command or not command.strip():
+        return False
+
+    # Just check it's not empty - we don't validate if the command exists
+    # That's the user's responsibility
+    return True

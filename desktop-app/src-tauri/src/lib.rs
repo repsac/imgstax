@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, Window};
 
 // Windows-specific imports for hiding console window
 #[cfg(windows)]
@@ -185,6 +185,31 @@ fn has_bundled_binary() -> bool {
     false
 }
 
+/// Get the imgstax command to run, adapting to production vs development mode.
+/// Returns (command_path, base_args) to prepend before any subcommand flags.
+/// - Production: (path/to/imgstax[.exe], [])
+/// - Development: (python_path, ["-m", "imgstax"])
+fn get_imgstax_cmd() -> (String, Vec<String>) {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|p| p.to_path_buf()));
+
+    if let Some(dir) = exe_dir {
+        let binary_name = if cfg!(target_os = "windows") {
+            "imgstax.exe"
+        } else {
+            "imgstax"
+        };
+        let binary_path = dir.join(binary_name);
+        if binary_path.exists() {
+            return (binary_path.to_string_lossy().to_string(), vec![]);
+        }
+    }
+
+    // Development: fall back to Python -m imgstax
+    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Recipe {
     name: String,
@@ -260,24 +285,57 @@ fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn get_recipes() -> Result<Vec<Recipe>, String> {
-    // Call Python to get recipe list
-    let python_code = r#"
-import sys
-import json
-sys.path.insert(0, '../..')
-from imgstax.recipe_loader import get_recipe_details
-recipes = get_recipe_details()
-print(json.dumps(recipes))
-"#;
+// ==================== Post-Processing Commands ====================
 
-    // Call Python to get recipe list
-    let output = Command::new(get_python_path())
-        .arg("-c")
-        .arg(python_code)
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+#[derive(Debug, Serialize, Deserialize)]
+struct PostProcRecipe {
+    name: String,
+    description: String,
+    path: String,
+    is_builtin: bool,
+    os: serde_json::Value,  // Can be string or array of strings
+}
+
+#[tauri::command]
+async fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (cmd, mut args) = get_imgstax_cmd();
+        args.push("--postproc-list".to_string());
+
+        let mut command = Command::new(&cmd);
+        command.args(&args);
+
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+
+        let output = command.output()
+            .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Python error: {}", stderr));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        serde_json::from_str(stdout.trim())
+            .map_err(|e| format!("Failed to parse recipes: {}", e))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String> {
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-get".to_string());
+    args.push(recipe_name.clone());
+
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -285,10 +343,282 @@ print(json.dumps(recipes))
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let recipes: Vec<Recipe> = serde_json::from_str(&stdout)
-        .map_err(|e| format!("Failed to parse recipes: {}", e))?;
+    let recipe: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse recipe: {}", e))?;
 
-    Ok(recipes)
+    if recipe.is_null() {
+        return Err(format!("Recipe not found: {}", recipe_name));
+    }
+
+    Ok(recipe)
+}
+
+#[tauri::command]
+fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-save".to_string());
+    args.push(recipe_json);
+
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to save recipe: {}", stderr));
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(path)
+}
+
+#[tauri::command]
+fn delete_postproc_recipe(recipe_path: String) -> Result<bool, String> {
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-delete".to_string());
+    args.push(recipe_path);
+
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to delete recipe: {}", stderr));
+    }
+
+    let result_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(result_str == "true")
+}
+
+#[tauri::command]
+async fn execute_postproc(
+    recipe_name: String,
+    working_directory: String,
+    window: Window,
+) -> Result<serde_json::Value, String> {
+    use std::path::PathBuf;
+    use std::fs::OpenOptions;
+    use std::io::Write as IoWrite;
+
+    // Create log file path in the output directory
+    let log_path = PathBuf::from(&working_directory).join("postproc.log");
+    let log_path_str = log_path.to_string_lossy().to_string();
+
+    // Build command: bundled binary in production, python -m imgstax in dev
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--postproc-execute".to_string());
+    args.push(recipe_name.clone());
+    args.push("--working-dir".to_string());
+    args.push(working_directory.clone());
+    args.push("--log-file".to_string());
+    args.push(log_path_str.clone());
+
+    let mut command = Command::new(&cmd);
+    command.args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Failed to start post-processing: {}", e))?;
+
+    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+
+    let reader = BufReader::new(stdout);
+    let stderr_reader = BufReader::new(stderr);
+
+    // Open Rust log file
+    let rust_log_path = PathBuf::from(&working_directory).join("postproc_rust.log");
+    let mut rust_log = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&rust_log_path)
+        .ok();
+
+    if let Some(ref mut log) = rust_log {
+        let _ = writeln!(log, "=== Rust Post-Processing Log ===");
+        let _ = writeln!(log, "Recipe: {}", recipe_name);
+        let _ = writeln!(log, "Working Directory: {}\n", working_directory);
+    }
+
+    // Collect stderr in a separate thread to prevent blocking
+    let stderr_log_path = rust_log_path.clone();
+    let stderr_handle = std::thread::spawn(move || {
+        let mut stderr_output = String::new();
+        let mut thread_log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&stderr_log_path)
+            .ok();
+
+        if let Some(ref mut log) = thread_log {
+            let _ = writeln!(log, "=== Python Process STDERR ===");
+        }
+
+        for line in stderr_reader.lines() {
+            if let Ok(line) = line {
+                if let Some(ref mut log) = thread_log {
+                    let _ = writeln!(log, "[STDERR] {}", line);
+                }
+                if !stderr_output.is_empty() {
+                    stderr_output.push('\n');
+                }
+                stderr_output.push_str(&line);
+            }
+        }
+        stderr_output
+    });
+
+    // Stream output to frontend and capture final result
+    let mut final_result: Option<serde_json::Value> = None;
+
+    if let Some(ref mut log) = rust_log {
+        let _ = writeln!(log, "=== Python Process STDOUT ===");
+    }
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read output: {}", e))?;
+
+        if let Some(ref mut log) = rust_log {
+            let _ = writeln!(log, "[STDOUT] {}", line);
+        }
+
+        // Try to parse as JSON progress event
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+            if event.get("type") == Some(&serde_json::Value::String("progress".to_string())) {
+                if let Some(ref mut log) = rust_log {
+                    let _ = writeln!(log, "[PARSED] Progress event");
+                }
+                let _ = window.emit("postproc-progress", &event);
+            } else {
+                if let Some(ref mut log) = rust_log {
+                    let _ = writeln!(log, "[PARSED] Final result: {}", serde_json::to_string_pretty(&event).unwrap_or_default());
+                }
+                // Capture final result but don't return yet - need to read all output
+                final_result = Some(event);
+            }
+        } else {
+            if let Some(ref mut log) = rust_log {
+                let _ = writeln!(log, "[PARSE FAILED] Could not parse as JSON");
+            }
+        }
+    }
+
+    // Wait for process to complete
+    let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
+
+    if let Some(ref mut log) = rust_log {
+        let _ = writeln!(log, "\n=== Process Completed ===");
+        let _ = writeln!(log, "Exit Status: {:?}", status);
+    }
+
+    // Get stderr output
+    let stderr_output = stderr_handle.join().unwrap_or_else(|_| String::new());
+
+    if let Some(ref mut log) = rust_log {
+        let _ = writeln!(log, "STDERR Output Length: {}", stderr_output.len());
+    }
+
+    // If we got a final result, validate and return it
+    if let Some(mut result) = final_result {
+        let is_success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        if let Some(ref mut log) = rust_log {
+            let _ = writeln!(log, "\n=== Returning Final Result ===");
+            let _ = writeln!(log, "Success: {:?}", result.get("success"));
+            let _ = writeln!(log, "Return Code: {:?}", result.get("return_code"));
+        }
+
+        // Add stderr to result if it's not already included
+        if !stderr_output.is_empty() && result.get("stderr").and_then(|s| s.as_str()).unwrap_or("").is_empty() {
+            result["stderr"] = serde_json::Value::String(stderr_output.clone());
+        }
+
+        // Add log file paths to result for error reporting
+        result["log_files"] = serde_json::json!({
+            "python_log": log_path.to_string_lossy(),
+            "rust_log": rust_log_path.to_string_lossy()
+        });
+
+        // If successful, delete the log files
+        if is_success {
+            let _ = std::fs::remove_file(&log_path);
+            let _ = std::fs::remove_file(&rust_log_path);
+            if let Some(ref mut log) = rust_log {
+                let _ = writeln!(log, "Deleted log files (success)");
+            }
+        } else {
+            // Add helpful error message pointing to logs
+            let log_dir = PathBuf::from(&working_directory);
+            result["error_message"] = serde_json::Value::String(
+                format!("Error detected in post-processing output. Please check the logs in:\n{}",
+                    log_dir.to_string_lossy())
+            );
+            if let Some(ref mut log) = rust_log {
+                let _ = writeln!(log, "Keeping log files (failure detected)");
+            }
+        }
+
+        // Return the result as-is - the JavaScript will check the success field
+        return Ok(result);
+    }
+
+    // No JSON result received - return error with stderr if available
+    if let Some(ref mut log) = rust_log {
+        let _ = writeln!(log, "\n=== ERROR: No Final Result Received ===");
+    }
+
+    if !stderr_output.is_empty() {
+        return Err(format!("Post-processing failed: {}", stderr_output));
+    }
+
+    if !status.success() {
+        return Err(format!("Post-processing failed with exit code: {:?}", status.code()));
+    }
+
+    Err("No result returned from post-processing".to_string())
+}
+
+// ==================== End Post-Processing Commands ====================
+
+#[tauri::command]
+fn get_recipes() -> Result<Vec<Recipe>, String> {
+    let (cmd, mut args) = get_imgstax_cmd();
+    args.push("--get-recipes-json".to_string());
+
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+
+    let output = command.output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Python error: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse recipes: {}", e))
 }
 
 #[tauri::command]
@@ -316,7 +646,15 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
     // Use Rust to count and validate images instead of Python (safer, no crash risk)
     let mut image_count = 0;
     let mut formats = std::collections::HashSet::new();
-    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    let image_extensions = [
+        ".jpg", ".jpeg", ".jpe", ".jfif",  // JPEG variants
+        ".png",                             // PNG
+        ".tif", ".tiff",                    // TIFF variants
+        ".bmp", ".dib",                     // BMP variants
+        ".webp",                            // WebP
+        ".tga",                             // TGA
+        ".ppm", ".pgm", ".pbm"              // Netpbm formats
+    ];
 
     match fs::read_dir(dir_path) {
         Ok(entries) => {
@@ -329,13 +667,21 @@ fn validate_directory(path: String) -> Result<ValidationResult, String> {
                             let ext_str = format!(".{}", ext_lower);
                             if image_extensions.contains(&ext_str.as_str()) {
                                 image_count += 1;
-                                // Map to format names
-                                if ext_str == ".jpg" || ext_str == ".jpeg" {
+                                // Map to format names for GUI controls
+                                if ext_str == ".jpg" || ext_str == ".jpeg" || ext_str == ".jpe" || ext_str == ".jfif" {
                                     formats.insert("jpeg".to_string());
                                 } else if ext_str == ".png" {
                                     formats.insert("png".to_string());
                                 } else if ext_str == ".tif" || ext_str == ".tiff" {
                                     formats.insert("tiff".to_string());
+                                } else if ext_str == ".bmp" || ext_str == ".dib" {
+                                    formats.insert("bmp".to_string());
+                                } else if ext_str == ".webp" {
+                                    formats.insert("webp".to_string());
+                                } else if ext_str == ".tga" {
+                                    formats.insert("tga".to_string());
+                                } else if ext_str == ".ppm" || ext_str == ".pgm" || ext_str == ".pbm" {
+                                    formats.insert("netpbm".to_string());
                                 }
                             }
                         }
@@ -382,7 +728,15 @@ struct FileInfo {
 fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
     // Use Rust to get file list instead of Python (safer, no crash risk)
     let dir_path = Path::new(&path);
-    let image_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    let image_extensions = [
+        ".jpg", ".jpeg", ".jpe", ".jfif",  // JPEG variants
+        ".png",                             // PNG
+        ".tif", ".tiff",                    // TIFF variants
+        ".bmp", ".dib",                     // BMP variants
+        ".webp",                            // WebP
+        ".tga",                             // TGA
+        ".ppm", ".pgm", ".pbm"              // Netpbm formats
+    ];
     let mut files = Vec::new();
 
     match fs::read_dir(dir_path) {
@@ -866,6 +1220,11 @@ pub fn run() {
         delete_user_recipe,
         export_user_recipe,
         import_user_recipe_from_file,
+        list_postproc_recipes,
+        load_postproc_recipe,
+        save_postproc_recipe,
+        delete_postproc_recipe,
+        execute_postproc,
         start_stacking,
         cancel_stacking,
         open_folder

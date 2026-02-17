@@ -51,8 +51,10 @@ npm run dev
 ## Features
 
 - 🎯 **Native file picker** - Browse for directories with system dialog
+- 🖼️ **File browser** - Preview images and right-click to set frame ranges
 - 🖥️ **Desktop app** - No browser or web server needed
 - 🎨 **Clean interface** - Same beautiful UI as web version
+- 📊 **Batch processing** - Queue multiple jobs with progress tracking
 - ⚙️ **All features** - Trail length, gradient, fade-out, quality control
 - 🍎 **Native** - Distributable as .dmg (macOS), .exe (Windows), .AppImage (Linux)
 
@@ -87,8 +89,8 @@ npm run dev
 npm run build
 
 # Build output locations:
-# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.1.0_x64.dmg
-# Windows: src-tauri/target/release/bundle/msi/imgstax_2.1.0_x64_en-US.msi
+# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.2.0_x64.dmg
+# Windows: src-tauri/target/release/bundle/msi/imgstax_2.2.0_x64_en-US.msi
 # Linux:   src-tauri/target/release/bundle/appimage/imgstax.AppImage
 ```
 

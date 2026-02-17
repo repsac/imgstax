@@ -9,7 +9,7 @@ Create stunning **animated progressions** from image sequences with an intuitive
 
 ## Download
 
-### Latest Release (v2.1.0)
+### Latest Release (v2.2.0)
 
 - **macOS** (Apple Silicon): [Download DMG](https://github.com/repsac/imgstax/releases/latest)
 - **Windows** (x64): [Download MSI](https://github.com/repsac/imgstax/releases/latest)
@@ -31,8 +31,10 @@ No Python installation required for pre-built applications!
 ### Visual Interface
 
 - **File Browser with Preview**: Browse directories and preview images before processing
+  - Right-click any image to set start/end frame for processing range
 - **Real-time Progress**: Watch your stacks build with live progress and ETA
 - **Batch Queue System**: Add multiple jobs and process them sequentially
+  - Progress shows current job number (e.g., "Stacking Images (2 of 5)")
 - **Recipe System**: Built-in presets for stars, traffic, murmurations, and more
 - **12 Color Themes**: Choose from Light, Dark, Desert, Forest, Utah, Yosemite, and more
 
@@ -70,6 +72,17 @@ Process multiple stacking jobs efficiently:
 - **Minimum**: Bird murmurations, dark objects in motion
 - **Mean**: Noise reduction, smooth motion blur
 - **Median**: Remove transient objects
+
+### Post-Processing
+
+Automatically run a shell command after stacking completes — great for generating a video from your stacked frames:
+
+- Select a post-process from the **Post-Process** dropdown (above the Stack button)
+- Runs automatically after stacking or after each job in a batch queue
+- Built-in recipes for ffmpeg video creation (30fps MP4)
+- Create custom recipes with the Post-Processing Recipe Editor
+- Progress shown in the same dialog as stacking
+- Errors are reported with full details; logs saved to the output directory
 
 ### Advanced Options
 
@@ -133,7 +146,15 @@ Choose where your stacked images will be saved. Each export creates a timestampe
 - `metadata.json` with settings used
 - `recipe.yaml` (if "Export recipe" is checked)
 
-### 5. Stack Images
+### 5. (Optional) Select a Post-Process
+
+Choose a post-processing command to run automatically after stacking:
+
+1. Select a recipe from the **Post-Process** dropdown above the Stack button
+2. Built-in options include ffmpeg video creation (30fps MP4)
+3. Leave blank to skip post-processing
+
+### 6. Stack Images
 
 **Single Export**: Click "Stack Images" to process immediately
 
@@ -158,6 +179,21 @@ Choose where your stacked images will be saved. Each export creates a timestampe
 | **timelapse** | mean | 5 | No | Time-lapse with motion blur |
 | **fireworks** | maximum | 10 | No | Firework composites |
 | **noise-reduction** | mean | 0 | No | Noise reduction averaging |
+
+> **Gradient tip — stacking mode matters:** The comet tail effect depends on the contrast between your subject and its background.
+> - **Bright subjects on dark backgrounds** (stars, fireworks): use **maximum** stacking. Bright pixels stay visible against the dark background even after fading.
+> - **Dark subjects on bright backgrounds** (birds, aircraft): use **minimum** stacking. With maximum stacking, dark subject pixels are immediately overwhelmed by the bright background and the trail disappears within 1–2 frames.
+>
+> To control trail length, adjust the **Gradient Decay** value. The default (0.85) suits star trails. For bird murmurations and other short sequences, try 0.95–0.97:
+>
+> | Decay | Approximate Visible Trail |
+> |---|---|
+> | 0.85 (default) | ~8 frames |
+> | 0.92 | ~17 frames |
+> | 0.95 | ~25 frames |
+> | 0.97 | ~40 frames |
+>
+> See the [CLI documentation](README-CLI.md#gradient-and-subject-contrast-choosing-the-right-stacking-mode) for a detailed explanation.
 
 ### Creating Custom Recipes
 
@@ -214,6 +250,57 @@ The queue system enables efficient batch processing:
 
 ---
 
+## Post-Processing
+
+After stacking completes, imgstax can automatically run a shell command in the output directory — the most common use is generating a video from the stacked image sequence.
+
+### Built-in Post-Processing Recipes
+
+| Recipe | Platform | What it does |
+|--------|----------|--------------|
+| **FFmpeg Video (30fps)** | macOS / Linux | Creates `output.mp4` from stacked JPEG frames at 30fps |
+| **FFmpeg Video (30fps) - Windows** | Windows | Same, using PowerShell syntax |
+
+> **Requires ffmpeg**: Install via `brew install ffmpeg` (macOS), your package manager (Linux), or [ffmpeg.org](https://ffmpeg.org/download.html) (Windows).
+
+### Creating Post-Processing Recipes
+
+1. Select **"✎ Post-Process Editor"** from the Post-Process dropdown
+2. Fill in the details:
+   - **Name**: Short descriptive name
+   - **Command**: Shell command to run (bash on macOS/Linux, PowerShell on Windows)
+   - **Working Directory**: `output` (stacked images) or `input` (source images)
+   - **OS Compatibility**: Limit the recipe to specific platforms
+   - **Environment Variables**: Optional JSON key/value pairs
+3. Click **Save Recipe**
+
+**Example commands:**
+
+```bash
+# Create video at 24fps with custom output name
+ffmpeg -f concat -safe 0 -i <(ls -1 *.jpg | sort | sed 's/^/file /') -r 24 -c:v libx264 -pix_fmt yuv420p timelapse.mp4
+
+# Create GIF (requires ImageMagick)
+convert -delay 5 -loop 0 *.jpg animation.gif
+```
+
+> **Tip:** The command runs with the working directory set to your output folder. Existing files will not be overwritten automatically — delete or rename `output.mp4` before re-running to avoid errors.
+
+### Linking a Post-Process to a Recipe
+
+In the **Recipe Editor**, use the **Post-Process** field to automatically select a post-process whenever the recipe is loaded. This is useful for workflows like "stars recipe → always generate a video".
+
+### Post-Processing Error Logs
+
+If a post-process fails, two log files are saved in the output directory:
+
+- `postproc.log` — Python-side log: command, subprocess output, return code
+- `postproc_rust.log` — Rust-side log: what the backend received and returned
+
+Logs are automatically deleted on success to keep the output directory clean.
+
+---
+
 ## Themes
 
 imgstax Desktop includes 12 built-in themes:
@@ -265,9 +352,13 @@ Access themes from the ☰ menu → Theme.
 
 ## Supported Image Formats
 
-- **JPEG** (.jpg, .jpeg) - Adjustable quality (1-100)
+- **JPEG** (.jpg, .jpeg, .jpe, .jfif) - Adjustable quality (1-100)
 - **PNG** (.png) - Adjustable compression (0-9)
 - **TIFF** (.tif, .tiff) - Multiple compression options (none, lzw, deflate, jpeg)
+- **BMP** (.bmp, .dib) - Uncompressed bitmap format
+- **WebP** (.webp) - Modern efficient format
+- **TGA** (.tga) - Targa format (common in 3D rendering)
+- **Netpbm** (.ppm, .pgm, .pbm) - Simple portable formats
 
 All images in a sequence must have the same dimensions.
 
@@ -360,6 +451,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions and [BUIL
 - Check activity monitor/task manager for CPU usage
 - App is likely processing normally
 
+**Post-processing fails or shows an error**
+- Check `postproc.log` in the output directory for the full error
+- Most common cause: output file already exists (e.g. `output.mp4`) — delete it and retry
+- Ensure the required tool (e.g. `ffmpeg`) is installed and on your PATH
+- On Windows, commands use PowerShell syntax; on macOS/Linux, bash syntax
+
 ---
 
 ## Use Cases
@@ -385,7 +482,13 @@ imgstax focuses on **progressive sequential stacking for animations**, not singl
 
 ## Version History
 
-### v2.1.0 (Current)
+### v2.2.0 (Current)
+- **Post-Processing System**: Run shell commands (ffmpeg, ImageMagick, etc.) after stacking
+- **Post-Processing Recipes**: Create and manage OS-specific post-process commands
+- **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support
+- **Batch Queue Improvements**: Accurate per-batch summary, progress bar state fixes
+
+### v2.1.0
 - **Desktop GUI Application**: Native macOS and Windows support
 - **File Browser**: Visual directory browsing with image preview
 - **Recipe Editor**: Create and manage custom recipes
