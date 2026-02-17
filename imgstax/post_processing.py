@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import os
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -70,44 +71,33 @@ def execute_post_processing(
             universal_newlines=True
         )
 
-        # Collect output
+        # Collect output — read stdout and stderr in separate threads to
+        # prevent pipe buffer deadlocks (e.g. ffmpeg writes heavily to stderr
+        # while stdout is idle, filling the 64KB pipe buffer and stalling).
         stdout_lines = []
         stderr_lines = []
+        callback_lock = threading.Lock()
 
-        # Read output in real-time
-        while True:
-            # Check if process has finished
-            return_code = process.poll()
+        def read_stream(pipe, lines, stream_name):
+            for line in pipe:
+                line = line.rstrip()
+                lines.append(line)
+                logger.debug(f"{stream_name.upper()}: {line}")
+                if progress_callback:
+                    with callback_lock:
+                        progress_callback(stream_name, line)
 
-            # Read available output
-            if process.stdout:
-                line = process.stdout.readline()
-                if line:
-                    stdout_lines.append(line.rstrip())
-                    logger.debug(f"STDOUT: {line.rstrip()}")
-                    if progress_callback:
-                        progress_callback('stdout', line.rstrip())
+        stdout_thread = threading.Thread(
+            target=read_stream, args=(process.stdout, stdout_lines, 'stdout'), daemon=True)
+        stderr_thread = threading.Thread(
+            target=read_stream, args=(process.stderr, stderr_lines, 'stderr'), daemon=True)
 
-            if process.stderr:
-                line = process.stderr.readline()
-                if line:
-                    stderr_lines.append(line.rstrip())
-                    logger.debug(f"STDERR: {line.rstrip()}")
-                    if progress_callback:
-                        progress_callback('stderr', line.rstrip())
+        stdout_thread.start()
+        stderr_thread.start()
 
-            # Break if process finished and no more output
-            if return_code is not None:
-                # Read remaining output
-                if process.stdout:
-                    for line in process.stdout:
-                        stdout_lines.append(line.rstrip())
-                        logger.debug(f"STDOUT: {line.rstrip()}")
-                if process.stderr:
-                    for line in process.stderr:
-                        stderr_lines.append(line.rstrip())
-                        logger.debug(f"STDERR: {line.rstrip()}")
-                break
+        stdout_thread.join()
+        stderr_thread.join()
+        return_code = process.wait()
 
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)

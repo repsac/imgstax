@@ -189,6 +189,14 @@ function loadQueue() {
                     return item;
                 });
 
+                // Reset any jobs stuck in 'processing' state from a previous session
+                stackingQueue = stackingQueue.map(item => {
+                    if (item.status === 'processing') {
+                        return { ...item, status: 'pending', error: null };
+                    }
+                    return item;
+                });
+
                 // Clear old completed/failed jobs (>24 hours)
                 const cutoff = Date.now() - (24 * 60 * 60 * 1000);
                 stackingQueue = stackingQueue.filter(item => {
@@ -407,9 +415,9 @@ async function requeueItem(id) {
     const item = stackingQueue.find(i => i.id === id);
     if (!item) return;
 
-    // Only allow re-queuing completed, failed, or cancelled items
-    if (item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled') {
-        await showMessageDialog('Cannot Re-queue', '<p>Can only re-queue completed, failed, or cancelled jobs.</p>');
+    // Only allow re-queuing completed, failed, cancelled, or stalled processing items
+    if (item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled' && item.status !== 'processing') {
+        await showMessageDialog('Cannot Re-queue', '<p>Can only re-queue completed, failed, cancelled, or stalled jobs.</p>');
         return;
     }
 
@@ -689,12 +697,10 @@ function renderQueueList() {
                         <button class="icon-button move-down" data-id="${safeId}"
                                 ${index === stackingQueue.length - 1 ? 'disabled' : ''} title="Move Down">↓</button>
                     ` : ''}
-                    ${(item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled') ? `
-                        <button class="icon-button requeue-item" data-id="${safeId}" title="Re-queue">↻</button>
+                    ${(item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled' || item.status === 'processing') ? `
+                        <button class="icon-button requeue-item" data-id="${safeId}" title="${item.status === 'processing' ? 'Reset to Pending' : 'Re-queue'}">↻</button>
                     ` : ''}
-                    ${item.status !== 'processing' ? `
-                        <button class="icon-button delete remove-item" data-id="${safeId}" title="Remove">×</button>
-                    ` : ''}
+                    <button class="icon-button delete remove-item" data-id="${safeId}" title="Remove">×</button>
                 </div>
             </div>
         `;

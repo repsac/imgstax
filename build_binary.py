@@ -39,7 +39,8 @@ def build_binary():
         "--name=imgstax",
         "--onefile",  # Single executable
         "--console",  # CLI app
-        "--add-data", "imgstax/recipes:imgstax/recipes",  # Include recipes
+        "--add-data", "imgstax/recipes:imgstax/recipes",  # Include stacking recipes
+        "--add-data", "imgstax/postproc_recipes:imgstax/postproc_recipes",  # Include post-processing recipes
         "imgstax_launcher.py",  # Entry point (wrapper script with absolute imports)
     ]
 
