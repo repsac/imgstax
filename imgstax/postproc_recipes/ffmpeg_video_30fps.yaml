@@ -1,6 +1,6 @@
 name: "FFmpeg Video (30fps)"
 description: "Create MP4 video from stacked images at 30 frames per second (JPG/JPEG)"
-command: "find . -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | sort | sed 's|^./||' | sed 's/^/file /' > files.txt && ffmpeg -f concat -safe 0 -i files.txt -r 30 -c:v libx264 -pix_fmt yuv420p -crf 23 output.mp4 && rm files.txt"
+command: "find . -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | sort | sed 's|^./||' | sed 's/^/file /' > files.txt && ffmpeg -f concat -safe 0 -i files.txt -r 30 -c:v libx264 -pix_fmt yuv420p -crf 23 -y output.mp4 && rm files.txt"
 working_directory: "output"
 env_vars: {}
 os: ["macos", "linux"]
