@@ -485,6 +485,7 @@ async function editQueueItem(id) {
     document.getElementById('endFrame').value = item.config.end_frame || '';
     document.getElementById('frameInterval').value = item.config.frame_interval || 1;
     document.getElementById('trailLength').value = item.config.trail_length || 10;
+    updateTrailControls();
     document.getElementById('trailGradient').checked = item.config.trail_gradient || false;
     document.getElementById('gradientDecay').value = item.config.gradient_decay || 0.85;
     document.getElementById('gradientPlateau').value = item.config.gradient_plateau || 3;
@@ -600,6 +601,7 @@ async function resetForm() {
 
         if (trailLength) trailLength.value = '0';
         if (trailGradient) trailGradient.checked = false;
+        updateTrailControls();
         if (gradientDecay) gradientDecay.value = '0.85';
         if (gradientPlateau) gradientPlateau.value = '0';
         if (fadeOut) fadeOut.checked = false;
@@ -1232,6 +1234,10 @@ async function init() {
         });
     }
 
+    // Disable trail-dependent controls when trailLength is 0
+    document.getElementById('trailLength').addEventListener('input', updateTrailControls);
+    updateTrailControls();
+
     // Queue system event listeners
     document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
     document.getElementById('openQueueBtn').addEventListener('click', openQueueDialog);
@@ -1323,6 +1329,7 @@ async function init() {
                 if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
                 if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
                 if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
+                updateTrailControls();
                 if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
                 if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
                 if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
@@ -1567,6 +1574,7 @@ function loadMainFormRecipe() {
     }
     if (recipe.trail_length !== undefined) {
         document.getElementById('trailLength').value = recipe.trail_length;
+        updateTrailControls();
     }
     if (recipe.frame_interval !== undefined) {
         document.getElementById('frameInterval').value = recipe.frame_interval;
@@ -2994,6 +3002,7 @@ async function loadFromPreview() {
         if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
         if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
         if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
+        updateTrailControls();
         if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
         if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
         if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
@@ -3675,6 +3684,21 @@ function waitForUserAcknowledgment() {
 }
 
 // ==================== End Post-Processing Functions ====================
+
+// Disable trail-dependent controls when trailLength is 0
+function updateTrailControls() {
+    const trailLength = parseInt(document.getElementById('trailLength').value) || 0;
+    const disabled = trailLength === 0;
+    const tooltip = disabled ? 'Requires Trail Length greater than 0' : '';
+    ['trailGradient', 'gradientDecay', 'gradientPlateau', 'fadeOut'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = disabled;
+        // Apply tooltip to the parent form-group so it covers the label too
+        const wrapper = el.closest('.form-group') || el.parentElement;
+        if (wrapper) wrapper.title = tooltip;
+    });
+}
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {

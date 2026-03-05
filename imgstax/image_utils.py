@@ -96,7 +96,7 @@ def apply_gradient_weights(images_arrays: list,
             decay_steps = position_from_newest - plateau
             weight = decay_factor ** decay_steps
 
-        img_float = img_array.astype(numpy.float64)
+        img_float = img_array.astype(numpy.float32)
 
         # Apply weighting: blend between original and fade target
         weighted_img = img_float * weight + fade_target * (1.0 - weight)
@@ -139,8 +139,7 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         logger.debug("Using gradient weighting for comet tail effect (decay=%.2f, plateau=%d)",
                     gradient_decay, gradient_plateau)
 
-    first_image = images[0] if isinstance(images, list) else images[0]
-    ext = first_image.suffix[1:].lower()
+    ext = output.suffix[1:].lower()
 
     # Map file extensions to PIL format names (only when upper() doesn't match PIL format)
     # Supported formats: JPEG, PNG, TIFF, BMP, WEBP, TGA, PPM, PGM, PBM
@@ -154,7 +153,14 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
     logger.info("Image format '%s' mapped from extension '%s'", img_format, ext)
 
     if not dryrun:
-        images_arrays = [numpy.array(Image.open(img)) for img in images]
+        # Accept pre-decoded numpy arrays (from frame cache) or file paths
+        if len(images) > 0 and isinstance(images[0], numpy.ndarray):
+            images_arrays = list(images)
+        else:
+            images_arrays = []
+            for img in images:
+                with Image.open(img) as pil_img:
+                    images_arrays.append(numpy.array(pil_img))
 
         # Apply gradient weighting if enabled
         if gradient:
