@@ -1,6 +1,6 @@
 [package]
 name = "imgstax-desktop"
-version = "2.2.0"
+version = "2.3.0"
 description = "Desktop GUI for imgstax image stacking tool"
 authors = ["Ed Caspersen"]
 license = ""

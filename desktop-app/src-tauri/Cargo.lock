@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "imgstax-desktop"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "log",
  "once_cell",
