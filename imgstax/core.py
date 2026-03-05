@@ -2,7 +2,11 @@ import time
 import shutil
 import logging
 import traceback
+from collections import deque
 from pathlib import Path
+
+import numpy
+from PIL import Image
 
 try:
     from tqdm import tqdm
@@ -107,6 +111,13 @@ def stack(config: StackConfig) -> None:
     if not config.dryrun:
         shutil.copyfile(images[0], stacked_images[0])
 
+    # Pre-populate frame cache for trail_length mode so each image is decoded once
+    frame_cache = None
+    if config.trail_length > 0 and not config.dryrun:
+        frame_cache = deque(maxlen=config.trail_length)
+        with Image.open(images[0]) as img:
+            frame_cache.append(numpy.array(img))
+
     # Set up progress iterator
     if HAS_TQDM:
         iterator = tqdm(enumerate(images[1:], start=2),
@@ -122,36 +133,30 @@ def stack(config: StackConfig) -> None:
 
         stacked_images.append(get_output_filepath(config.output_path, config.prefix, index, ext))
 
-        # Calculate effective trail length for fade-out
         if config.trail_length > 0:
+            # Read new frame once and add to cache (oldest frame evicted automatically)
+            if not config.dryrun:
+                with Image.open(image) as img:
+                    frame_cache.append(numpy.array(img))
+
+            # Determine effective window for fade-out
             if config.fade_out and index > total_images - config.trail_length:
-                # Gradually reduce trail length in final frames
                 frames_from_end = total_images - index
                 effective_trail_length = max(1, frames_from_end)
                 logger.debug("Fade-out active: frame %d, using trail length %d (original: %d)",
                            index, effective_trail_length, config.trail_length)
+                cached_arrays = list(frame_cache)[-effective_trail_length:]
             else:
-                effective_trail_length = config.trail_length
+                cached_arrays = list(frame_cache)
 
-            # Use sliding window with effective trail length
-            if index-1 > effective_trail_length:
-                start_idx = index - effective_trail_length
-                logger.debug("Slicing image list [%d:%d]", start_idx, index)
-                subset_images = images[start_idx:index]
-                if not HAS_TQDM:
-                    logger.info("Input file start at %s and ending %s", subset_images[0], subset_images[-1])
-            else:
-                # Stack with previous stacked image
-                if not HAS_TQDM:
-                    logger.info("Stacking %s with %d: %s", stacked_images[-2], index, image)
-                subset_images = (stacked_images[-2], image)
+            stack_images(cached_arrays, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.png_compress_level, config.tiff_compression, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
         else:
-            # No trail length specified - stack with previous stacked image
+            # No trail length — stack previous output with new image (2 file reads)
             if not HAS_TQDM:
                 logger.info("Stacking %s with %d: %s", stacked_images[-2], index, image)
             subset_images = (stacked_images[-2], image)
 
-        stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.png_compress_level, config.tiff_compression, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
+            stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.png_compress_level, config.tiff_compression, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
 
     # Emit completion message for JSON mode
     if config.progress_json:
