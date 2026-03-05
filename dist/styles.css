@@ -540,6 +540,12 @@ body {
     margin-bottom: 20px;
 }
 
+.section-divider {
+    margin: 10px 0 20px;
+    border: none;
+    border-top: 1px solid var(--border-color);
+}
+
 label {
     display: block;
     margin-bottom: 8px;
