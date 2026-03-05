@@ -139,8 +139,7 @@ def stack_images(images: Union[Tuple[Path, ...], List[Path]],
         logger.debug("Using gradient weighting for comet tail effect (decay=%.2f, plateau=%d)",
                     gradient_decay, gradient_plateau)
 
-    first_image = images[0] if isinstance(images, list) else images[0]
-    ext = first_image.suffix[1:].lower()
+    ext = output.suffix[1:].lower()
 
     # Map file extensions to PIL format names (only when upper() doesn't match PIL format)
     # Supported formats: JPEG, PNG, TIFF, BMP, WEBP, TGA, PPM, PGM, PBM
