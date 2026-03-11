@@ -1121,6 +1121,11 @@ async function startBatchProcessing() {
     currentBatchIndex = -1;
     totalBatchJobs = 0;
 
+    // Fire completion notification if any jobs succeeded
+    if (batchCompleted > 0) {
+        playCompletionNotification();
+    }
+
     // Show completion summary (only jobs processed in this batch)
     const completed = batchCompleted;
     const failed = batchFailed;
@@ -1202,6 +1207,9 @@ async function init() {
     // Refresh post-process dropdown in background — subprocess call, no need to block UI
     // list_postproc_recipes is async in Rust (spawn_blocking) so it won't block other invokes
     refreshPostProcDropdown();
+
+    // Init notification sounds (non-blocking, hides section on Linux)
+    initNotificationSounds();
 
     // Load queue on startup
     loadQueue();
@@ -1366,6 +1374,19 @@ async function init() {
     document.getElementById('savePreferences').addEventListener('click', savePreferences);
     document.getElementById('cancelPreferences').addEventListener('click', closePreferences);
     document.getElementById('resetPreferences').addEventListener('click', resetPreferences);
+    document.getElementById('prefNotificationSound').addEventListener('change', function() {
+        document.getElementById('ttsMessageGroup').style.display = this.value === '__tts__' ? 'block' : 'none';
+    });
+    document.getElementById('testNotificationBtn').addEventListener('click', async function() {
+        const sound = document.getElementById('prefNotificationSound').value;
+        if (!sound) return;
+        if (sound === '__tts__') {
+            const msg = document.getElementById('prefTtsMessage').value || defaultPreferences.ttsMessage;
+            try { await invoke('speak_notification', { text: msg }); } catch (e) { console.error(e); }
+        } else {
+            try { await invoke('play_notification_sound', { path: sound }); } catch (e) { console.error(e); }
+        }
+    });
 
     // Recipe editor event listeners
     document.getElementById('saveRecipe').addEventListener('click', saveRecipe);
@@ -1472,7 +1493,9 @@ const defaultPreferences = {
     quality: 100,
     pngCompressLevel: 6,
     tiffCompression: 'deflate',
-    theme: 'vibrant'
+    theme: 'vibrant',
+    notificationSound: '',
+    ttsMessage: 'Stacking Complete'
 };
 
 // Built-in recipe templates (full settings from recipe YAML files)
@@ -1625,6 +1648,12 @@ function openPreferences() {
     document.getElementById('prefTiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
     document.getElementById('prefTheme').value = prefs.theme || defaultPreferences.theme;
 
+    // Populate notification prefs
+    const soundVal = prefs.notificationSound || defaultPreferences.notificationSound;
+    document.getElementById('prefNotificationSound').value = soundVal;
+    document.getElementById('prefTtsMessage').value = prefs.ttsMessage || defaultPreferences.ttsMessage;
+    document.getElementById('ttsMessageGroup').style.display = soundVal === '__tts__' ? 'block' : 'none';
+
     // Show dialog
     document.getElementById('overlay').style.display = 'block';
     document.getElementById('preferencesDialog').style.display = 'block';
@@ -1642,7 +1671,9 @@ async function savePreferences() {
         quality: parseInt(document.getElementById('prefQuality').value),
         pngCompressLevel: parseInt(document.getElementById('prefPngCompress').value),
         tiffCompression: document.getElementById('prefTiffCompression').value,
-        theme: document.getElementById('prefTheme').value
+        theme: document.getElementById('prefTheme').value,
+        notificationSound: document.getElementById('prefNotificationSound').value,
+        ttsMessage: document.getElementById('prefTtsMessage').value || defaultPreferences.ttsMessage
     };
 
     try {
@@ -1668,6 +1699,61 @@ async function resetPreferences() {
         document.getElementById('prefPngCompress').value = defaultPreferences.pngCompressLevel;
         document.getElementById('prefTiffCompression').value = defaultPreferences.tiffCompression;
         document.getElementById('prefTheme').value = defaultPreferences.theme;
+        document.getElementById('prefNotificationSound').value = defaultPreferences.notificationSound;
+        document.getElementById('prefTtsMessage').value = defaultPreferences.ttsMessage;
+        document.getElementById('ttsMessageGroup').style.display = 'none';
+    }
+}
+
+// ==================== Notification Sound ====================
+
+async function initNotificationSounds() {
+    try {
+        const platform = await invoke('get_platform');
+
+        // Hide section entirely on Linux
+        if (platform === 'linux') {
+            const section = document.getElementById('notificationSection');
+            if (section) section.style.display = 'none';
+            return;
+        }
+
+        const sounds = await invoke('list_system_sounds');
+        const select = document.getElementById('prefNotificationSound');
+
+        // Add sound options after the fixed options (None, TTS)
+        sounds.forEach(sound => {
+            const opt = document.createElement('option');
+            opt.value = sound.path;
+            opt.textContent = sound.name;
+            select.appendChild(opt);
+        });
+
+        // Restore saved selection
+        const prefs = loadPreferences();
+        if (prefs.notificationSound) {
+            select.value = prefs.notificationSound;
+        }
+    } catch (error) {
+        console.error('Failed to init notification sounds:', error);
+    }
+}
+
+async function playCompletionNotification() {
+    try {
+        const prefs = loadPreferences();
+        const sound = prefs.notificationSound || '';
+
+        if (!sound) return;
+
+        if (sound === '__tts__') {
+            const msg = prefs.ttsMessage || defaultPreferences.ttsMessage;
+            await invoke('speak_notification', { text: msg });
+        } else {
+            await invoke('play_notification_sound', { path: sound });
+        }
+    } catch (error) {
+        console.error('Notification failed:', error);
     }
 }
 
@@ -2029,6 +2115,9 @@ async function startStacking() {
             outputDirFromStack = result.output_dir;
             progressText.textContent = 'Stacking complete!';
             cancelStackingButton.style.display = 'none';
+
+            // Fire completion notification (fire-and-forget)
+            playCompletionNotification();
 
             // Check if post-processing is selected
             const postProcessName = document.getElementById('postProcess').value;
