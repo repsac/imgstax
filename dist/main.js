@@ -32,6 +32,7 @@ let outputDirPath = '';
 let outputDirFromStack = '';
 let allFiles = [];
 let selectedIndices = new Set();
+let appVersion = '';
 
 // Elements
 const statusEl = document.getElementById('status-bar');
@@ -1195,8 +1196,8 @@ async function init() {
 
     // Get version immediately — trivial Rust call, must not be blocked by subprocess invokes
     try {
-        const version = await invoke('get_app_version');
-        statusEl.textContent = `imgstax v${version}`;
+        appVersion = await invoke('get_app_version');
+        statusEl.textContent = `imgstax v${appVersion}`;
     } catch (error) {
         statusEl.textContent = `Error: ${error}`;
     }
@@ -1370,6 +1371,8 @@ async function init() {
 
     // Preferences event listeners
     document.getElementById('preferencesBtn').addEventListener('click', openPreferences);
+    document.getElementById('aboutBtn').addEventListener('click', openAbout);
+    document.getElementById('closeAboutBtn').addEventListener('click', closeAbout);
     document.getElementById('prefRecipe').addEventListener('change', loadRecipeTemplate);
     document.getElementById('savePreferences').addEventListener('click', savePreferences);
     document.getElementById('cancelPreferences').addEventListener('click', closePreferences);
@@ -1423,6 +1426,8 @@ async function init() {
                 closeRecipeEditor();
             } else if (document.getElementById('recipePreviewDialog').style.display === 'block') {
                 closeRecipePreview();
+            } else if (document.getElementById('aboutDialog').style.display === 'block') {
+                closeAbout();
             } else if (document.getElementById('preferencesDialog').style.display === 'block') {
                 closePreferences();
             } else if (document.getElementById('progressDialog').style.display === 'block') {
@@ -1657,6 +1662,20 @@ function openPreferences() {
     // Show dialog
     document.getElementById('overlay').style.display = 'block';
     document.getElementById('preferencesDialog').style.display = 'block';
+}
+
+function openAbout() {
+    const year = new Date().getFullYear();
+    document.getElementById('aboutVersion').textContent = appVersion
+        ? `${appVersion} (${year})`
+        : '—';
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('aboutDialog').style.display = 'block';
+}
+
+function closeAbout() {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('aboutDialog').style.display = 'none';
 }
 
 function closePreferences() {

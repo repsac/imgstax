@@ -1373,6 +1373,27 @@ button.secondary:hover {
     resize: vertical;
 }
 
+/* About Dialog */
+#aboutDialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-main);
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    max-width: 480px;
+    width: 90%;
+}
+
+#aboutDialog h2 {
+    margin: 0 0 24px 0;
+    color: var(--text-dark);
+    font-size: 28px;
+}
+
 /* Post-Processing Dialog Positioning */
 #postProcPreviewDialog,
 #postProcEditorDialog {
