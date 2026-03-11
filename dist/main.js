@@ -612,11 +612,13 @@ async function resetForm() {
         if (dryRun) dryRun.checked = false;
         if (exportRecipeWithImages) exportRecipeWithImages.checked = false;
 
-        // Clear file browser selection
-        const fileBrowserList = document.getElementById('fileBrowserList');
-        if (fileBrowserList) {
-            fileBrowserList.innerHTML = '';
-        }
+        // Clear file list and preview
+        allFiles = [];
+        selectedIndices = new Set();
+        fileListEl.innerHTML = '';
+        fileListTitleEl.textContent = '';
+        previewContentEl.innerHTML = '<div class="preview-empty">Click an image to preview</div>';
+        previewFilenameEl.textContent = '';
 
         console.log('Form reset complete');
 
@@ -1717,6 +1719,11 @@ async function browseInputDirectory() {
 
 async function loadFileList(dirPath) {
     try {
+        // Clear previous file list and preview when loading a new sequence
+        fileListEl.innerHTML = '';
+        previewContentEl.innerHTML = '<div class="preview-empty">Click an image to preview</div>';
+        previewFilenameEl.textContent = '';
+
         fileListTitleEl.textContent = 'Loading files (max 30s)...';
         const files = await invokeWithTimeout('get_file_list', { path: dirPath }, 30000);
         allFiles = files;
