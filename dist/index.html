@@ -305,6 +305,26 @@
             </div>
         </div>
 
+        <div class="preferences-section" id="notificationSection">
+            <h3>Completion Notification</h3>
+
+            <div class="pref-group">
+                <label for="prefNotificationSound">Notification Sound</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="prefNotificationSound" style="flex: 1;">
+                        <option value="">None</option>
+                        <option value="__tts__">Text-to-Speech</option>
+                    </select>
+                    <button id="testNotificationBtn" class="secondary" style="white-space: nowrap;">Test</button>
+                </div>
+            </div>
+
+            <div class="pref-group" id="ttsMessageGroup" style="display: none;">
+                <label for="prefTtsMessage">TTS Message</label>
+                <input type="text" id="prefTtsMessage" value="Stacking Complete">
+            </div>
+        </div>
+
         <div class="preferences-actions">
             <button id="savePreferences" class="primary">Save</button>
             <button id="cancelPreferences" class="secondary">Cancel</button>
