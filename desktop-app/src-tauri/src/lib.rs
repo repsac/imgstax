@@ -285,6 +285,138 @@ fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ==================== Notification Commands ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SoundFile {
+    name: String,
+    path: String,
+}
+
+#[tauri::command]
+fn get_platform() -> String {
+    if cfg!(target_os = "macos") {
+        "macos".to_string()
+    } else if cfg!(target_os = "windows") {
+        "windows".to_string()
+    } else {
+        "linux".to_string()
+    }
+}
+
+#[tauri::command]
+fn list_system_sounds() -> Vec<SoundFile> {
+    #[cfg(target_os = "macos")]
+    {
+        let dir = "/System/Library/Sounds/";
+        let mut sounds = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if ext == "aiff" || ext == "aifc" {
+                        if let Some(stem) = path.file_stem() {
+                            sounds.push(SoundFile {
+                                name: stem.to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        sounds.sort_by(|a, b| a.name.cmp(&b.name));
+        sounds
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let dir = r"C:\Windows\Media\";
+        let mut sounds = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "wav" {
+                        if let Some(stem) = path.file_stem() {
+                            sounds.push(SoundFile {
+                                name: stem.to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        sounds.sort_by(|a, b| a.name.cmp(&b.name));
+        sounds
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Vec::new()
+    }
+}
+
+#[tauri::command]
+fn play_notification_sound(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("afplay")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to play sound: {}", e))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             [System.Media.SoundPlayer]::new('{}').PlaySync()",
+            path.replace('\'', "\\'")
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .spawn()
+            .map_err(|e| format!("Failed to play sound: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = path;
+        Err("Sound notifications not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+fn speak_notification(text: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("say")
+            .arg(&text)
+            .spawn()
+            .map_err(|e| format!("Failed to speak: {}", e))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "Add-Type -AssemblyName System.Speech; \
+             (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{}')",
+            text.replace('\'', "\\'")
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .spawn()
+            .map_err(|e| format!("Failed to speak: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = text;
+        Err("Text-to-speech not supported on this platform".to_string())
+    }
+}
+
 // ==================== Post-Processing Commands ====================
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1227,7 +1359,11 @@ pub fn run() {
         execute_postproc,
         start_stacking,
         cancel_stacking,
-        open_folder
+        open_folder,
+        get_platform,
+        list_system_sounds,
+        play_notification_sound,
+        speak_notification
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
