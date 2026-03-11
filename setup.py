@@ -9,7 +9,7 @@ long_description = readme_file.read_text(encoding='utf-8') if readme_file.exists
 
 setup(
     name='imgstax',
-    version='2.3.0',
+    version='2.4.0',
     author='Ed Caspersen',
     description='Image stacking tool for creating artistic effects and long exposures',
     long_description=long_description,
