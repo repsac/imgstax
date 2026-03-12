@@ -32,6 +32,7 @@ let outputDirPath = '';
 let outputDirFromStack = '';
 let allFiles = [];
 let selectedIndices = new Set();
+let appVersion = '';
 
 // Elements
 const statusEl = document.getElementById('status-bar');
@@ -106,9 +107,17 @@ async function restoreWindowPosition() {
         }
 
         const window = getCurrentWindow();
+        const scaleFactor = await window.scaleFactor();
+
+        // Clamp to max dimensions (logical px from tauri.conf.json) so saved
+        // state from before maxWidth/maxHeight was added doesn't overshoot.
+        const maxPhysicalW = Math.floor(1250 * scaleFactor);
+        const maxPhysicalH = Math.floor(1050 * scaleFactor);
+        const clampedWidth = Math.min(state.width, maxPhysicalW);
+        const clampedHeight = Math.min(state.height, maxPhysicalH);
 
         // Restore position and size using Physical coordinates
-        await window.setSize({ type: 'Physical', width: state.width, height: state.height });
+        await window.setSize({ type: 'Physical', width: clampedWidth, height: clampedHeight });
         await window.setPosition({ type: 'Physical', x: state.x, y: state.y });
 
         return true; // Successfully restored
@@ -612,11 +621,13 @@ async function resetForm() {
         if (dryRun) dryRun.checked = false;
         if (exportRecipeWithImages) exportRecipeWithImages.checked = false;
 
-        // Clear file browser selection
-        const fileBrowserList = document.getElementById('fileBrowserList');
-        if (fileBrowserList) {
-            fileBrowserList.innerHTML = '';
-        }
+        // Clear file list and preview
+        allFiles = [];
+        selectedIndices = new Set();
+        fileListEl.innerHTML = '';
+        fileListTitleEl.textContent = '';
+        previewContentEl.innerHTML = '<div class="preview-empty">Click an image to preview</div>';
+        previewFilenameEl.textContent = '';
 
         console.log('Form reset complete');
 
@@ -1119,6 +1130,11 @@ async function startBatchProcessing() {
     currentBatchIndex = -1;
     totalBatchJobs = 0;
 
+    // Fire completion notification if any jobs succeeded
+    if (batchCompleted > 0) {
+        playCompletionNotification();
+    }
+
     // Show completion summary (only jobs processed in this batch)
     const completed = batchCompleted;
     const failed = batchFailed;
@@ -1188,8 +1204,8 @@ async function init() {
 
     // Get version immediately — trivial Rust call, must not be blocked by subprocess invokes
     try {
-        const version = await invoke('get_app_version');
-        statusEl.textContent = `imgstax v${version}`;
+        appVersion = await invoke('get_app_version');
+        statusEl.textContent = `imgstax v${appVersion}`;
     } catch (error) {
         statusEl.textContent = `Error: ${error}`;
     }
@@ -1200,6 +1216,9 @@ async function init() {
     // Refresh post-process dropdown in background — subprocess call, no need to block UI
     // list_postproc_recipes is async in Rust (spawn_blocking) so it won't block other invokes
     refreshPostProcDropdown();
+
+    // Init notification sounds (non-blocking, hides section on Linux)
+    initNotificationSounds();
 
     // Load queue on startup
     loadQueue();
@@ -1360,10 +1379,25 @@ async function init() {
 
     // Preferences event listeners
     document.getElementById('preferencesBtn').addEventListener('click', openPreferences);
+    document.getElementById('aboutBtn').addEventListener('click', openAbout);
+    document.getElementById('closeAboutBtn').addEventListener('click', closeAbout);
     document.getElementById('prefRecipe').addEventListener('change', loadRecipeTemplate);
     document.getElementById('savePreferences').addEventListener('click', savePreferences);
     document.getElementById('cancelPreferences').addEventListener('click', closePreferences);
     document.getElementById('resetPreferences').addEventListener('click', resetPreferences);
+    document.getElementById('prefNotificationSound').addEventListener('change', function() {
+        document.getElementById('ttsMessageGroup').style.display = this.value === '__tts__' ? 'block' : 'none';
+    });
+    document.getElementById('testNotificationBtn').addEventListener('click', async function() {
+        const sound = document.getElementById('prefNotificationSound').value;
+        if (!sound) return;
+        if (sound === '__tts__') {
+            const msg = document.getElementById('prefTtsMessage').value || defaultPreferences.ttsMessage;
+            try { await invoke('speak_notification', { text: msg }); } catch (e) { console.error(e); }
+        } else {
+            try { await invoke('play_notification_sound', { path: sound }); } catch (e) { console.error(e); }
+        }
+    });
 
     // Recipe editor event listeners
     document.getElementById('saveRecipe').addEventListener('click', saveRecipe);
@@ -1400,6 +1434,8 @@ async function init() {
                 closeRecipeEditor();
             } else if (document.getElementById('recipePreviewDialog').style.display === 'block') {
                 closeRecipePreview();
+            } else if (document.getElementById('aboutDialog').style.display === 'block') {
+                closeAbout();
             } else if (document.getElementById('preferencesDialog').style.display === 'block') {
                 closePreferences();
             } else if (document.getElementById('progressDialog').style.display === 'block') {
@@ -1470,7 +1506,9 @@ const defaultPreferences = {
     quality: 100,
     pngCompressLevel: 6,
     tiffCompression: 'deflate',
-    theme: 'vibrant'
+    theme: 'vibrant',
+    notificationSound: '',
+    ttsMessage: 'Stacking Complete'
 };
 
 // Built-in recipe templates (full settings from recipe YAML files)
@@ -1623,9 +1661,29 @@ function openPreferences() {
     document.getElementById('prefTiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
     document.getElementById('prefTheme').value = prefs.theme || defaultPreferences.theme;
 
+    // Populate notification prefs
+    const soundVal = prefs.notificationSound || defaultPreferences.notificationSound;
+    document.getElementById('prefNotificationSound').value = soundVal;
+    document.getElementById('prefTtsMessage').value = prefs.ttsMessage || defaultPreferences.ttsMessage;
+    document.getElementById('ttsMessageGroup').style.display = soundVal === '__tts__' ? 'block' : 'none';
+
     // Show dialog
     document.getElementById('overlay').style.display = 'block';
     document.getElementById('preferencesDialog').style.display = 'block';
+}
+
+function openAbout() {
+    const year = new Date().getFullYear();
+    document.getElementById('aboutVersion').textContent = appVersion
+        ? `${appVersion} (${year})`
+        : '—';
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById('aboutDialog').style.display = 'block';
+}
+
+function closeAbout() {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('aboutDialog').style.display = 'none';
 }
 
 function closePreferences() {
@@ -1640,7 +1698,9 @@ async function savePreferences() {
         quality: parseInt(document.getElementById('prefQuality').value),
         pngCompressLevel: parseInt(document.getElementById('prefPngCompress').value),
         tiffCompression: document.getElementById('prefTiffCompression').value,
-        theme: document.getElementById('prefTheme').value
+        theme: document.getElementById('prefTheme').value,
+        notificationSound: document.getElementById('prefNotificationSound').value,
+        ttsMessage: document.getElementById('prefTtsMessage').value || defaultPreferences.ttsMessage
     };
 
     try {
@@ -1666,6 +1726,61 @@ async function resetPreferences() {
         document.getElementById('prefPngCompress').value = defaultPreferences.pngCompressLevel;
         document.getElementById('prefTiffCompression').value = defaultPreferences.tiffCompression;
         document.getElementById('prefTheme').value = defaultPreferences.theme;
+        document.getElementById('prefNotificationSound').value = defaultPreferences.notificationSound;
+        document.getElementById('prefTtsMessage').value = defaultPreferences.ttsMessage;
+        document.getElementById('ttsMessageGroup').style.display = 'none';
+    }
+}
+
+// ==================== Notification Sound ====================
+
+async function initNotificationSounds() {
+    try {
+        const platform = await invoke('get_platform');
+
+        // Hide section entirely on Linux
+        if (platform === 'linux') {
+            const section = document.getElementById('notificationSection');
+            if (section) section.style.display = 'none';
+            return;
+        }
+
+        const sounds = await invoke('list_system_sounds');
+        const select = document.getElementById('prefNotificationSound');
+
+        // Add sound options after the fixed options (None, TTS)
+        sounds.forEach(sound => {
+            const opt = document.createElement('option');
+            opt.value = sound.path;
+            opt.textContent = sound.name;
+            select.appendChild(opt);
+        });
+
+        // Restore saved selection
+        const prefs = loadPreferences();
+        if (prefs.notificationSound) {
+            select.value = prefs.notificationSound;
+        }
+    } catch (error) {
+        console.error('Failed to init notification sounds:', error);
+    }
+}
+
+async function playCompletionNotification() {
+    try {
+        const prefs = loadPreferences();
+        const sound = prefs.notificationSound || '';
+
+        if (!sound) return;
+
+        if (sound === '__tts__') {
+            const msg = prefs.ttsMessage || defaultPreferences.ttsMessage;
+            await invoke('speak_notification', { text: msg });
+        } else {
+            await invoke('play_notification_sound', { path: sound });
+        }
+    } catch (error) {
+        console.error('Notification failed:', error);
     }
 }
 
@@ -1698,7 +1813,17 @@ async function browseInputDirectory() {
                 // Show/hide format-specific controls based on detected formats
                 updateFormatControls(result.detected_formats || []);
 
-                // Load file list
+                // Clear output directory when input changes to avoid accidental clashes
+                outputDirEl.value = '';
+                outputDirPath = '';
+
+                // Reset frame selection before loading file list so
+                // updateFileSelection() inside loadFileList sees defaults
+                document.getElementById('startFrame').value = '';
+                document.getElementById('endFrame').value = '';
+                document.getElementById('frameInterval').value = '1';
+
+                // Load file list (calls updateFileSelection with reset values)
                 await loadFileList(selected);
             } else {
                 inputValidationEl.textContent = result.error;
@@ -1717,6 +1842,11 @@ async function browseInputDirectory() {
 
 async function loadFileList(dirPath) {
     try {
+        // Clear previous file list and preview when loading a new sequence
+        fileListEl.innerHTML = '';
+        previewContentEl.innerHTML = '<div class="preview-empty">Click an image to preview</div>';
+        previewFilenameEl.textContent = '';
+
         fileListTitleEl.textContent = 'Loading files (max 30s)...';
         const files = await invokeWithTimeout('get_file_list', { path: dirPath }, 30000);
         allFiles = files;
@@ -2022,6 +2152,9 @@ async function startStacking() {
             outputDirFromStack = result.output_dir;
             progressText.textContent = 'Stacking complete!';
             cancelStackingButton.style.display = 'none';
+
+            // Fire completion notification (fire-and-forget)
+            playCompletionNotification();
 
             // Check if post-processing is selected
             const postProcessName = document.getElementById('postProcess').value;

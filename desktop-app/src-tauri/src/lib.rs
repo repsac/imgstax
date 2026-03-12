@@ -285,6 +285,140 @@ fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ==================== Notification Commands ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SoundFile {
+    name: String,
+    path: String,
+}
+
+#[tauri::command]
+fn get_platform() -> String {
+    if cfg!(target_os = "macos") {
+        "macos".to_string()
+    } else if cfg!(target_os = "windows") {
+        "windows".to_string()
+    } else {
+        "linux".to_string()
+    }
+}
+
+#[tauri::command]
+fn list_system_sounds() -> Vec<SoundFile> {
+    #[cfg(target_os = "macos")]
+    {
+        let dir = "/System/Library/Sounds/";
+        let mut sounds = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if ext == "aiff" || ext == "aifc" {
+                        if let Some(stem) = path.file_stem() {
+                            sounds.push(SoundFile {
+                                name: stem.to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        sounds.sort_by(|a, b| a.name.cmp(&b.name));
+        sounds
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let dir = r"C:\Windows\Media\";
+        let mut sounds = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "wav" {
+                        if let Some(stem) = path.file_stem() {
+                            sounds.push(SoundFile {
+                                name: stem.to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        sounds.sort_by(|a, b| a.name.cmp(&b.name));
+        sounds
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Vec::new()
+    }
+}
+
+#[tauri::command]
+fn play_notification_sound(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("afplay")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to play sound: {}", e))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             [System.Media.SoundPlayer]::new('{}').PlaySync()",
+            path.replace('\'', "\\'")
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("Failed to play sound: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = path;
+        Err("Sound notifications not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+fn speak_notification(text: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("say")
+            .arg(&text)
+            .spawn()
+            .map_err(|e| format!("Failed to speak: {}", e))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "Add-Type -AssemblyName System.Speech; \
+             (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{}')",
+            text.replace('\'', "\\'")
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("Failed to speak: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = text;
+        Err("Text-to-speech not supported on this platform".to_string())
+    }
+}
+
 // ==================== Post-Processing Commands ====================
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1108,7 +1242,20 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
     let reader = BufReader::new(stdout);
+
+    // Collect stderr in a background thread to prevent deadlock
+    let stderr_handle = std::thread::spawn(move || {
+        let mut output = String::new();
+        for line in BufReader::new(stderr).lines() {
+            if let Ok(line) = line {
+                output.push_str(&line);
+                output.push('\n');
+            }
+        }
+        output
+    });
 
     // Read JSON lines and emit progress to frontend
     for line in reader.lines() {
@@ -1119,6 +1266,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
+    let stderr_output = stderr_handle.join().unwrap_or_default();
 
     // Clear the process ID from storage since it's done
     {
@@ -1128,10 +1276,28 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     if !status.success() {
+        // Write error log to the output directory for debugging
+        use std::io::Write as IoWrite;
+        let log_path = Path::new(&config.output_path).join("stacking_error.log");
+        if let Ok(mut log_file) = fs::File::create(&log_path) {
+            let _ = writeln!(log_file, "=== imgstax Stacking Error Log ===");
+            let _ = writeln!(log_file, "Input:  {}", config.input_path);
+            let _ = writeln!(log_file, "Output: {}", config.output_path);
+            let _ = writeln!(log_file, "Exit status: {:?}", status.code());
+            let _ = writeln!(log_file, "\n=== Process Output ===");
+            let _ = writeln!(log_file, "{}", if stderr_output.is_empty() { "(no output)" } else { &stderr_output });
+        }
+
+        let error_detail = if !stderr_output.is_empty() {
+            format!("Stacking failed:\n{}", stderr_output.trim())
+        } else {
+            format!("Stacking failed with exit code {:?}. Check stacking_error.log in the output directory.", status.code())
+        };
+
         return Ok(StackResult {
             success: false,
-            output_dir: String::new(),
-            error: Some("Stacking failed or was cancelled".to_string()),
+            output_dir: config.output_path.clone(),
+            error: Some(error_detail),
         });
     }
 
@@ -1227,7 +1393,11 @@ pub fn run() {
         execute_postproc,
         start_stacking,
         cancel_stacking,
-        open_folder
+        open_folder,
+        get_platform,
+        list_system_sounds,
+        play_notification_sound,
+        speak_notification
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
