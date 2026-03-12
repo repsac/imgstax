@@ -107,9 +107,17 @@ async function restoreWindowPosition() {
         }
 
         const window = getCurrentWindow();
+        const scaleFactor = await window.scaleFactor();
+
+        // Clamp to max dimensions (logical px from tauri.conf.json) so saved
+        // state from before maxWidth/maxHeight was added doesn't overshoot.
+        const maxPhysicalW = Math.floor(1250 * scaleFactor);
+        const maxPhysicalH = Math.floor(1050 * scaleFactor);
+        const clampedWidth = Math.min(state.width, maxPhysicalW);
+        const clampedHeight = Math.min(state.height, maxPhysicalH);
 
         // Restore position and size using Physical coordinates
-        await window.setSize({ type: 'Physical', width: state.width, height: state.height });
+        await window.setSize({ type: 'Physical', width: clampedWidth, height: clampedHeight });
         await window.setPosition({ type: 'Physical', x: state.x, y: state.y });
 
         return true; // Successfully restored
@@ -1805,7 +1813,13 @@ async function browseInputDirectory() {
                 // Show/hide format-specific controls based on detected formats
                 updateFormatControls(result.detected_formats || []);
 
-                // Load file list
+                // Reset frame selection before loading file list so
+                // updateFileSelection() inside loadFileList sees defaults
+                document.getElementById('startFrame').value = '';
+                document.getElementById('endFrame').value = '';
+                document.getElementById('frameInterval').value = '1';
+
+                // Load file list (calls updateFileSelection with reset values)
                 await loadFileList(selected);
             } else {
                 inputValidationEl.textContent = result.error;

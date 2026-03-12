@@ -376,6 +376,7 @@ fn play_notification_sound(path: String) -> Result<(), String> {
         );
         Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
             .map_err(|e| format!("Failed to play sound: {}", e))?;
         Ok(())
@@ -406,6 +407,7 @@ fn speak_notification(text: String) -> Result<(), String> {
         );
         Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
             .map_err(|e| format!("Failed to speak: {}", e))?;
         Ok(())
