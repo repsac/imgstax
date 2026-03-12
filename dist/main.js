@@ -1813,6 +1813,10 @@ async function browseInputDirectory() {
                 // Show/hide format-specific controls based on detected formats
                 updateFormatControls(result.detected_formats || []);
 
+                // Clear output directory when input changes to avoid accidental clashes
+                outputDirEl.value = '';
+                outputDirPath = '';
+
                 // Reset frame selection before loading file list so
                 // updateFileSelection() inside loadFileList sees defaults
                 document.getElementById('startFrame').value = '';
