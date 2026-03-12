@@ -1242,7 +1242,20 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
     let reader = BufReader::new(stdout);
+
+    // Collect stderr in a background thread to prevent deadlock
+    let stderr_handle = std::thread::spawn(move || {
+        let mut output = String::new();
+        for line in BufReader::new(stderr).lines() {
+            if let Ok(line) = line {
+                output.push_str(&line);
+                output.push('\n');
+            }
+        }
+        output
+    });
 
     // Read JSON lines and emit progress to frontend
     for line in reader.lines() {
@@ -1253,6 +1266,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
+    let stderr_output = stderr_handle.join().unwrap_or_default();
 
     // Clear the process ID from storage since it's done
     {
@@ -1262,10 +1276,28 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     }
 
     if !status.success() {
+        // Write error log to the output directory for debugging
+        use std::io::Write as IoWrite;
+        let log_path = Path::new(&config.output_path).join("stacking_error.log");
+        if let Ok(mut log_file) = fs::File::create(&log_path) {
+            let _ = writeln!(log_file, "=== imgstax Stacking Error Log ===");
+            let _ = writeln!(log_file, "Input:  {}", config.input_path);
+            let _ = writeln!(log_file, "Output: {}", config.output_path);
+            let _ = writeln!(log_file, "Exit status: {:?}", status.code());
+            let _ = writeln!(log_file, "\n=== Process Output ===");
+            let _ = writeln!(log_file, "{}", if stderr_output.is_empty() { "(no output)" } else { &stderr_output });
+        }
+
+        let error_detail = if !stderr_output.is_empty() {
+            format!("Stacking failed:\n{}", stderr_output.trim())
+        } else {
+            format!("Stacking failed with exit code {:?}. Check stacking_error.log in the output directory.", status.code())
+        };
+
         return Ok(StackResult {
             success: false,
-            output_dir: String::new(),
-            error: Some("Stacking failed or was cancelled".to_string()),
+            output_dir: config.output_path.clone(),
+            error: Some(error_detail),
         });
     }
 
