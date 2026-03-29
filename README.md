@@ -9,7 +9,7 @@ Create stunning **animated progressions** from image sequences with an intuitive
 
 ## Download
 
-### Latest Release (v2.3.0)
+### Latest Release (v2.4.0)
 
 - **macOS** (Apple Silicon): [Download DMG](https://github.com/repsac/imgstax/releases/latest)
 - **Windows** (x64): [Download MSI](https://github.com/repsac/imgstax/releases/latest)
@@ -485,7 +485,14 @@ imgstax focuses on **progressive sequential stacking for animations**, not singl
 
 ## Version History
 
-### v2.3.0 (Current)
+### v2.4.0 (Current)
+- **Completion Notification Sound**: System sound or TTS alert when stacking finishes (macOS/Windows)
+- **About Dialog**: Version, author, license, and GitHub link
+- **Window Size Constraints**: Max width/height prevent excessive whitespace
+- **Stacking Error Logging**: Error details surfaced in progress dialog; `stacking_error.log` written on failure
+- **Bug Fixes**: Reset clears file list/preview (#24, #25), output dir clears on input change, Windows notification terminal flash fixed (#28)
+
+### v2.3.0
 - **Post-Processing System**: Run shell commands (ffmpeg, ImageMagick, etc.) after stacking
 - **Post-Processing Recipes**: Create and manage OS-specific post-process commands
 - **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support

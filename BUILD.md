@@ -16,20 +16,20 @@ Before building a release, update version numbers in these files:
 1. **desktop-app/src-tauri/tauri.conf.json**: Main app version
    ```json
    {
-     "version": "2.3.0"
+     "version": "2.4.0"
    }
    ```
 
 2. **desktop-app/package.json**: NPM package version
    ```json
    {
-     "version": "2.3.0"
+     "version": "2.4.0"
    }
    ```
 
 3. **imgstax/__init__.py**: Python package version (if changed)
    ```python
-   __version__ = "2.3.0"
+   __version__ = "2.4.0"
    ```
 
 **Version format**: Follow [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH)
@@ -108,8 +108,8 @@ chmod +x desktop-app/src-tauri/target/release/bundle/appimage/imgstax_*.AppImage
 The generated installers are self-contained and can be distributed directly to users. No Python installation required!
 
 **GitHub Releases** (recommended):
-1. Create a version tag: `git tag -a v2.3.0 -m "Release v2.3.0"`
-2. Push the tag: `git push origin v2.3.0`
+1. Create a version tag: `git tag -a v2.4.0 -m "Release v2.4.0"`
+2. Push the tag: `git push origin v2.4.0`
 3. Create a GitHub Release and upload:
    - macOS: `.dmg` file
    - Windows: `.msi` file

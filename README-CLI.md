@@ -520,7 +520,7 @@ imgstax focuses on **progressive sequential stacking for animations**, not singl
 
 ## Version History
 
-### v2.3.0 (Current)
+### v2.4.0 (Current)
 - **Post-Processing System**: Run shell commands (ffmpeg, etc.) after stacking completes
 - **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support
 - **Gradient Documentation**: Detailed guide on stacking mode selection for subject contrast
