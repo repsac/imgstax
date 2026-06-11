@@ -216,6 +216,7 @@
         <div style="display: flex; gap: 10px;">
             <button id="cancelStackingButton" class="secondary" style="display: none; flex: 1;">Cancel</button>
             <button id="openOutputButton" style="display: none; flex: 1;">Open Output Folder</button>
+            <button id="closeProgressButton" class="secondary" style="display: none; flex: 1;">Close</button>
         </div>
     </div>
 
@@ -475,8 +476,8 @@
         <h2>Recipe Preview</h2>
 
         <div class="recipe-preview-section">
-            <label for="recipeSearchInput" style="display: none;">Search Recipes</label>
-            <input type="text" id="recipeSearchInput" placeholder="Type to filter recipes..." style="display: none;">
+            <label for="recipeSearchInput">Search Recipes</label>
+            <input type="text" id="recipeSearchInput" placeholder="Type to filter recipes..." style="margin-bottom: 12px;">
 
             <label for="previewRecipeSelector">Select Recipe</label>
             <select id="previewRecipeSelector" style="margin-bottom: 20px;">
@@ -728,7 +729,7 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <script src="js-yaml.min.js"></script>
     <script src="main.js"></script>
 </body>
 </html>

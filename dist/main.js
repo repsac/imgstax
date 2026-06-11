@@ -27,12 +27,32 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
+// Number parsing helpers that treat 0 as a valid value.
+// `parseInt(x) || fallback` silently replaces legitimate zeros
+// (gradient plateau 0, PNG compression 0, decay 0.0).
+function intOr(value, fallback) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function floatOr(value, fallback) {
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function numOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
 let inputDirPath = '';
 let outputDirPath = '';
 let outputDirFromStack = '';
 let allFiles = [];
 let selectedIndices = new Set();
 let appVersion = '';
+// ETA reference for the progress listener; reset when a run starts so a
+// cancelled/failed run's timestamp can't skew the next run's estimate
+let regularStackingStartTime = null;
 
 // Elements
 const statusEl = document.getElementById('status-bar');
@@ -49,6 +69,7 @@ const progressText = document.getElementById('progressText');
 const overlay = document.getElementById('overlay');
 const openOutputButton = document.getElementById('openOutputButton');
 const cancelStackingButton = document.getElementById('cancelStackingButton');
+const closeProgressButton = document.getElementById('closeProgressButton');
 const fileListEl = document.getElementById('fileList');
 const fileListTitleEl = document.getElementById('fileListTitle');
 const previewContentEl = document.getElementById('previewContent');
@@ -90,10 +111,10 @@ async function restoreWindowPosition() {
 
         const state = JSON.parse(savedState);
 
-        // Validate state has valid numbers
-        if (!state.width || !state.height || !state.x || !state.y ||
-            typeof state.width !== 'number' || typeof state.height !== 'number' ||
-            typeof state.x !== 'number' || typeof state.y !== 'number') {
+        // Validate state has valid numbers (0 is a legal x/y for edge-snapped windows)
+        if (!Number.isFinite(state.width) || !Number.isFinite(state.height) ||
+            !Number.isFinite(state.x) || !Number.isFinite(state.y) ||
+            state.width <= 0 || state.height <= 0) {
             console.warn('Invalid saved window state, clearing and using defaults');
             localStorage.removeItem('windowState');
             return false;
@@ -181,17 +202,17 @@ function loadQueue() {
                             input_path: item.config.inputDir || item.config.input_path || '',
                             output_path: item.config.outputDir || item.config.output_path || '',
                             prefix: item.config.prefix || '',
-                            stacking: item.config.stackingMode || item.config.stacking || 'progressive',
-                            start_frame: item.config.startFrame || item.config.start_frame || null,
-                            end_frame: item.config.endFrame || item.config.end_frame || null,
-                            frame_interval: item.config.frameInterval || item.config.frame_interval || 1,
-                            trail_length: item.config.trailLength || item.config.trail_length || 10,
+                            stacking: item.config.stackingMode || item.config.stacking || 'maximum',
+                            start_frame: numOr(item.config.startFrame ?? item.config.start_frame, null),
+                            end_frame: numOr(item.config.endFrame ?? item.config.end_frame, null),
+                            frame_interval: numOr(item.config.frameInterval ?? item.config.frame_interval, 1),
+                            trail_length: numOr(item.config.trailLength ?? item.config.trail_length, 0),
                             trail_gradient: item.config.trailGradient !== undefined ? item.config.trailGradient : (item.config.trail_gradient || false),
-                            gradient_decay: item.config.gradientDecay || item.config.gradient_decay || 0.85,
-                            gradient_plateau: item.config.gradientPlateau || item.config.gradient_plateau || 3,
+                            gradient_decay: numOr(item.config.gradientDecay ?? item.config.gradient_decay, 0.85),
+                            gradient_plateau: numOr(item.config.gradientPlateau ?? item.config.gradient_plateau, 0),
                             fade_out: item.config.fadeOut !== undefined ? item.config.fadeOut : (item.config.fade_out || false),
-                            quality: item.config.quality || 95,
-                            png_compress_level: item.config.pngCompressLevel || item.config.png_compress_level || 6,
+                            quality: numOr(item.config.quality, 100),
+                            png_compress_level: numOr(item.config.pngCompressLevel ?? item.config.png_compress_level, 6),
                             tiff_compression: item.config.tiffCompression || item.config.tiff_compression || 'deflate'
                         };
                     }
@@ -264,16 +285,16 @@ function collectFormConfig() {
         output_path: outputDirPath,
         prefix: document.getElementById('prefix').value,
         stacking: document.getElementById('stacking').value,
-        start_frame: document.getElementById('startFrame').value ? parseInt(document.getElementById('startFrame').value) : null,
-        end_frame: document.getElementById('endFrame').value ? parseInt(document.getElementById('endFrame').value) : null,
-        frame_interval: parseInt(document.getElementById('frameInterval').value),
-        trail_length: parseInt(document.getElementById('trailLength').value),
+        start_frame: document.getElementById('startFrame').value !== '' ? intOr(document.getElementById('startFrame').value, null) : null,
+        end_frame: document.getElementById('endFrame').value !== '' ? intOr(document.getElementById('endFrame').value, null) : null,
+        frame_interval: intOr(document.getElementById('frameInterval').value, 1),
+        trail_length: intOr(document.getElementById('trailLength').value, 0),
         trail_gradient: document.getElementById('trailGradient').checked,
-        gradient_decay: parseFloat(document.getElementById('gradientDecay').value),
-        gradient_plateau: parseInt(document.getElementById('gradientPlateau').value),
+        gradient_decay: floatOr(document.getElementById('gradientDecay').value, 0.85),
+        gradient_plateau: intOr(document.getElementById('gradientPlateau').value, 0),
         fade_out: document.getElementById('fadeOut').checked,
-        quality: parseInt(document.getElementById('quality').value),
-        png_compress_level: parseInt(document.getElementById('pngCompressLevel').value),
+        quality: intOr(document.getElementById('quality').value, 100),
+        png_compress_level: intOr(document.getElementById('pngCompressLevel').value, 6),
         tiff_compression: document.getElementById('tiffCompression').value,
         export_recipe: document.getElementById('exportRecipeWithImages').checked,
         post_process: document.getElementById('postProcess').value || ''
@@ -490,17 +511,17 @@ async function editQueueItem(id) {
 
     document.getElementById('prefix').value = item.config.prefix || '';
     document.getElementById('stacking').value = item.config.stacking || 'progressive';
-    document.getElementById('startFrame').value = item.config.start_frame || '';
-    document.getElementById('endFrame').value = item.config.end_frame || '';
-    document.getElementById('frameInterval').value = item.config.frame_interval || 1;
-    document.getElementById('trailLength').value = item.config.trail_length || 10;
+    document.getElementById('startFrame').value = numOr(item.config.start_frame, '');
+    document.getElementById('endFrame').value = numOr(item.config.end_frame, '');
+    document.getElementById('frameInterval').value = numOr(item.config.frame_interval, 1);
+    document.getElementById('trailLength').value = numOr(item.config.trail_length, 0);
     updateTrailControls();
     document.getElementById('trailGradient').checked = item.config.trail_gradient || false;
-    document.getElementById('gradientDecay').value = item.config.gradient_decay || 0.85;
-    document.getElementById('gradientPlateau').value = item.config.gradient_plateau || 3;
+    document.getElementById('gradientDecay').value = numOr(item.config.gradient_decay, 0.85);
+    document.getElementById('gradientPlateau').value = numOr(item.config.gradient_plateau, 0);
     document.getElementById('fadeOut').checked = item.config.fade_out || false;
-    document.getElementById('quality').value = item.config.quality || 95;
-    document.getElementById('pngCompressLevel').value = item.config.png_compress_level || 6;
+    document.getElementById('quality').value = numOr(item.config.quality, 100);
+    document.getElementById('pngCompressLevel').value = numOr(item.config.png_compress_level, 6);
     document.getElementById('tiffCompression').value = item.config.tiff_compression || 'deflate';
     document.getElementById('postProcess').value = item.config.post_process || '';
 
@@ -625,9 +646,12 @@ async function resetForm() {
         allFiles = [];
         selectedIndices = new Set();
         fileListEl.innerHTML = '';
-        fileListTitleEl.textContent = '';
+        fileListTitleEl.textContent = 'No directory selected';
         previewContentEl.innerHTML = '<div class="preview-empty">Click an image to preview</div>';
         previewFilenameEl.textContent = '';
+
+        // Hide format controls left over from the last validated directory
+        updateFormatControls([]);
 
         console.log('Form reset complete');
 
@@ -636,7 +660,7 @@ async function resetForm() {
         updateQueueBadge();
     } catch (error) {
         console.error('Error during form reset:', error);
-        await showMessageDialog('Reset Error', `<p>An error occurred while resetting the form:</p><p style="margin-top: 10px; color: #f44336;">${error.message}</p>`);
+        await showMessageDialog('Reset Error', `<p>An error occurred while resetting the form:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error.message))}</p>`);
     }
 }
 
@@ -795,10 +819,11 @@ async function executeStackingJob(config) {
             progressFill.textContent = '0%';
             progressFill.style.background = ''; // Reset to default color
             progressFill.classList.remove('indeterminate'); // Remove animation classes
-            progressText.textContent = 'Initializing...';
             progressText.innerHTML = ''; // Clear any HTML from previous errors
+            progressText.textContent = 'Initializing...';
             cancelStackingButton.style.display = 'block';
             openOutputButton.style.display = 'none';
+            closeProgressButton.style.display = 'none';
 
             // Update title to show batch progress if in batch mode
             if (isBatchProcessing) {
@@ -1026,25 +1051,21 @@ function showMessageDialog(title, message) {
         // Show dialog
         dialog.classList.remove('hidden');
 
-        // Create handler
-        const handleOk = () => {
+        // Both close paths remove both listeners so none accumulate
+        const close = () => {
             dialog.classList.add('hidden');
-            okBtn.removeEventListener('click', handleOk);
+            okBtn.removeEventListener('click', close);
+            document.removeEventListener('keydown', handleEsc);
             resolve();
         };
 
-        // Add event listener
-        okBtn.addEventListener('click', handleOk);
-
-        // ESC key support
         const handleEsc = (e) => {
             if (e.key === 'Escape') {
-                dialog.classList.add('hidden');
-                okBtn.removeEventListener('click', handleOk);
-                document.removeEventListener('keydown', handleEsc);
-                resolve();
+                close();
             }
         };
+
+        okBtn.addEventListener('click', close);
         document.addEventListener('keydown', handleEsc);
     });
 }
@@ -1232,6 +1253,11 @@ async function init() {
     startButton.addEventListener('click', startStacking);
     openOutputButton.addEventListener('click', openOutputFolder);
     cancelStackingButton.addEventListener('click', cancelStacking);
+    closeProgressButton.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        progressDialog.style.display = 'none';
+        startButton.disabled = false;
+    });
     document.getElementById('resetFormBtn').addEventListener('click', resetForm);
 
     // Add input validation for gradientDecay (enforce 0.0-1.0 range)
@@ -1248,7 +1274,7 @@ async function init() {
         gradientDecayInput.addEventListener('blur', function() {
             const value = parseFloat(this.value);
             if (isNaN(value) || value < 0 || value > 1) {
-                this.value = 0.8; // Reset to default if invalid
+                this.value = 0.85; // Reset to default if invalid
             }
         });
     }
@@ -1340,24 +1366,10 @@ async function init() {
 
             const result = await loadUserRecipeYaml(recipeId);
             if (result.success) {
-                const settings = result.recipe.settings || {};
-
-                // Populate form with recipe settings
-                if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
-                if (settings.quality !== undefined) document.getElementById('quality').value = settings.quality;
-                if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
-                if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
-                if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
-                updateTrailControls();
-                if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
-                if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
-                if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
-                if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
-                if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
-                if (settings.post_process !== undefined) document.getElementById('postProcess').value = settings.post_process;
+                applyRecipeSettingsToForm(result.recipe.settings || {});
             } else {
                 console.error('Error loading user recipe:', result.error);
-                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
+                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(result.error))}</p>`);
             }
         } else {
             // Built-in recipe or custom settings
@@ -1417,14 +1429,23 @@ async function init() {
 
     // ESC key to close dialogs
     document.addEventListener('keydown', (event) => {
-        // Cmd/Ctrl + Shift + Q = Open Queue Dialog
-        if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'q') {
+        // Cmd/Ctrl + Shift + Q = Open Queue Dialog (key is 'Q' while Shift is held)
+        if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'q') {
             event.preventDefault();
             openQueueDialog();
             return;
         }
 
         if (event.key === 'Escape') {
+            // Transient modals (confirm/message/cancel prompts) stack on top of
+            // other dialogs and handle ESC themselves — closing the dialog
+            // underneath them here would corrupt their in-flight state
+            if (!document.getElementById('customConfirmDialog').classList.contains('hidden') ||
+                !document.getElementById('messageDialog').classList.contains('hidden') ||
+                !document.getElementById('cancelConfirmDialog').classList.contains('hidden')) {
+                return;
+            }
+
             // Check which dialog is open and close it
             if (maximizedImageOverlay.style.display === 'flex') {
                 maximizedImageOverlay.style.display = 'none';
@@ -1439,6 +1460,13 @@ async function init() {
             } else if (document.getElementById('preferencesDialog').style.display === 'block') {
                 closePreferences();
             } else if (document.getElementById('progressDialog').style.display === 'block') {
+                // While a post-processing error awaits acknowledgment, ESC must
+                // resolve the wait — hiding the dialog would strand the batch loop
+                const continueBtn = document.getElementById('continueAfterErrorBtn');
+                if (continueBtn) {
+                    continueBtn.click();
+                    return;
+                }
                 // Only allow closing progress dialog if stacking is complete (cancel button hidden)
                 if (cancelStackingButton.style.display === 'none') {
                     overlay.style.display = 'none';
@@ -1455,7 +1483,6 @@ async function init() {
     document.getElementById('frameInterval').addEventListener('input', updateFileSelection);
 
     // Listen for stacking progress
-    let regularStackingStartTime = null;
     await listen('stacking-progress', (event) => {
         const data = event.payload;
         if (data.type === 'progress') {
@@ -1495,6 +1522,7 @@ async function init() {
             progressFill.textContent = '100%';
             progressText.textContent = 'Stacking complete!';
             openOutputButton.style.display = 'block';
+            closeProgressButton.style.display = 'block';
         }
     });
 }
@@ -1571,8 +1599,8 @@ function applyPreferences(prefs) {
     // Apply to main form fields
     document.getElementById('prefix').value = prefs.prefix || defaultPreferences.prefix;
     document.getElementById('stacking').value = prefs.stacking || defaultPreferences.stacking;
-    document.getElementById('quality').value = prefs.quality || defaultPreferences.quality;
-    document.getElementById('pngCompressLevel').value = prefs.pngCompressLevel || defaultPreferences.pngCompressLevel;
+    document.getElementById('quality').value = numOr(prefs.quality, defaultPreferences.quality);
+    document.getElementById('pngCompressLevel').value = numOr(prefs.pngCompressLevel, defaultPreferences.pngCompressLevel);
     document.getElementById('tiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
 
     // Apply theme
@@ -1593,6 +1621,40 @@ function applyTheme(themeName) {
     }
 }
 
+// Reset stacking-related form fields to their defaults (respecting user
+// preferences), then apply the keys a recipe defines. Without the reset,
+// fields a recipe omits silently keep values from the previously selected
+// recipe (e.g. Star Trails inheriting Murmurations' gradient checkbox).
+function applyRecipeSettingsToForm(settings) {
+    const prefs = loadPreferences();
+    document.getElementById('stacking').value = prefs.stacking || defaultPreferences.stacking;
+    document.getElementById('quality').value = numOr(prefs.quality, defaultPreferences.quality);
+    document.getElementById('pngCompressLevel').value = numOr(prefs.pngCompressLevel, defaultPreferences.pngCompressLevel);
+    document.getElementById('tiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
+    document.getElementById('trailLength').value = 0;
+    document.getElementById('frameInterval').value = 1;
+    document.getElementById('trailGradient').checked = false;
+    document.getElementById('gradientDecay').value = 0.85;
+    document.getElementById('gradientPlateau').value = 0;
+    document.getElementById('fadeOut').checked = false;
+    document.getElementById('postProcess').value = '';
+
+    if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
+    if (settings.quality !== undefined) document.getElementById('quality').value = settings.quality;
+    if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
+    if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
+    if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
+    // `step` is the legacy key for frame_interval in old user recipes
+    const interval = settings.frame_interval !== undefined ? settings.frame_interval : settings.step;
+    if (interval !== undefined) document.getElementById('frameInterval').value = interval;
+    if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
+    if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
+    if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
+    if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
+    if (settings.post_process !== undefined) document.getElementById('postProcess').value = settings.post_process;
+    updateTrailControls();
+}
+
 function loadMainFormRecipe() {
     const recipeSelect = document.getElementById('recipe');
     const recipeId = recipeSelect.value;
@@ -1601,28 +1663,7 @@ function loadMainFormRecipe() {
         return;
     }
 
-    const recipe = recipeTemplates[recipeId];
-
-    // Populate main form fields with recipe values
-    if (recipe.stacking) {
-        document.getElementById('stacking').value = recipe.stacking;
-    }
-    if (recipe.quality !== undefined) {
-        document.getElementById('quality').value = recipe.quality;
-    }
-    if (recipe.trail_length !== undefined) {
-        document.getElementById('trailLength').value = recipe.trail_length;
-        updateTrailControls();
-    }
-    if (recipe.frame_interval !== undefined) {
-        document.getElementById('frameInterval').value = recipe.frame_interval;
-    }
-    if (recipe.fade_out !== undefined) {
-        document.getElementById('fadeOut').checked = recipe.fade_out;
-    }
-    if (recipe.trail_gradient !== undefined) {
-        document.getElementById('trailGradient').checked = recipe.trail_gradient;
-    }
+    applyRecipeSettingsToForm(recipeTemplates[recipeId]);
 }
 
 function loadRecipeTemplate() {
@@ -1656,8 +1697,8 @@ function openPreferences() {
     // Populate preferences dialog with current values (with fallbacks to defaults)
     document.getElementById('prefPrefix').value = prefs.prefix || defaultPreferences.prefix;
     document.getElementById('prefStacking').value = prefs.stacking || defaultPreferences.stacking;
-    document.getElementById('prefQuality').value = prefs.quality || defaultPreferences.quality;
-    document.getElementById('prefPngCompress').value = prefs.pngCompressLevel || defaultPreferences.pngCompressLevel;
+    document.getElementById('prefQuality').value = numOr(prefs.quality, defaultPreferences.quality);
+    document.getElementById('prefPngCompress').value = numOr(prefs.pngCompressLevel, defaultPreferences.pngCompressLevel);
     document.getElementById('prefTiffCompression').value = prefs.tiffCompression || defaultPreferences.tiffCompression;
     document.getElementById('prefTheme').value = prefs.theme || defaultPreferences.theme;
 
@@ -1709,7 +1750,7 @@ async function savePreferences() {
         closePreferences();
     } catch (error) {
         console.error('Failed to save preferences:', error);
-        await showMessageDialog('Error Saving Preferences', `<p>Failed to save preferences:</p><p style="margin-top: 10px; color: #f44336;">${error.message}</p>`);
+        await showMessageDialog('Error Saving Preferences', `<p>Failed to save preferences:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error.message))}</p>`);
     }
 }
 
@@ -1887,9 +1928,9 @@ function updateFormatControls(detectedFormats) {
 function calculateSelectedIndices() {
     if (allFiles.length === 0) return new Set();
 
-    const startFrame = parseInt(document.getElementById('startFrame').value) || 0;
-    const endFrame = parseInt(document.getElementById('endFrame').value) || allFiles.length - 1;
-    const frameInterval = parseInt(document.getElementById('frameInterval').value) || 1;
+    const startFrame = intOr(document.getElementById('startFrame').value, 0);
+    const endFrame = intOr(document.getElementById('endFrame').value, allFiles.length - 1);
+    const frameInterval = intOr(document.getElementById('frameInterval').value, 1) || 1;
 
     const selected = new Set();
     for (let i = startFrame; i <= Math.min(endFrame, allFiles.length - 1); i += frameInterval) {
@@ -2117,16 +2158,16 @@ async function startStacking() {
         output_path: outputDirPath,
         prefix: document.getElementById('prefix').value,
         stacking: document.getElementById('stacking').value,
-        start_frame: document.getElementById('startFrame').value ? parseInt(document.getElementById('startFrame').value) : null,
-        end_frame: document.getElementById('endFrame').value ? parseInt(document.getElementById('endFrame').value) : null,
-        frame_interval: parseInt(document.getElementById('frameInterval').value) || 1,
-        trail_length: parseInt(document.getElementById('trailLength').value) || 0,
+        start_frame: document.getElementById('startFrame').value !== '' ? intOr(document.getElementById('startFrame').value, null) : null,
+        end_frame: document.getElementById('endFrame').value !== '' ? intOr(document.getElementById('endFrame').value, null) : null,
+        frame_interval: intOr(document.getElementById('frameInterval').value, 1),
+        trail_length: intOr(document.getElementById('trailLength').value, 0),
         trail_gradient: document.getElementById('trailGradient').checked,
-        gradient_decay: parseFloat(document.getElementById('gradientDecay').value) || 0.7,
-        gradient_plateau: parseInt(document.getElementById('gradientPlateau').value) || 3,
+        gradient_decay: floatOr(document.getElementById('gradientDecay').value, 0.85),
+        gradient_plateau: intOr(document.getElementById('gradientPlateau').value, 0),
         fade_out: document.getElementById('fadeOut').checked,
-        quality: parseInt(document.getElementById('quality').value) || 95,
-        png_compress_level: parseInt(document.getElementById('pngCompressLevel').value) || 6,
+        quality: intOr(document.getElementById('quality').value, 100),
+        png_compress_level: intOr(document.getElementById('pngCompressLevel').value, 6),
         tiff_compression: document.getElementById('tiffCompression').value,
         export_recipe: document.getElementById('exportRecipeWithImages').checked
     };
@@ -2139,11 +2180,13 @@ async function startStacking() {
     progressFill.textContent = '0%';
     progressFill.style.background = ''; // Reset to default color
     progressFill.classList.remove('indeterminate'); // Remove animation classes
-    progressText.textContent = 'Starting...';
     progressText.innerHTML = ''; // Clear any HTML from previous errors
+    progressText.textContent = 'Starting...';
     openOutputButton.style.display = 'none';
+    closeProgressButton.style.display = 'none';
     cancelStackingButton.style.display = 'block';
     startButton.disabled = true;
+    regularStackingStartTime = null; // Stale timestamps from a cancelled run skew the ETA
 
     try {
         const result = await invoke('start_stacking', { config });
@@ -2164,6 +2207,7 @@ async function startStacking() {
             }
 
             openOutputButton.style.display = 'block';
+            closeProgressButton.style.display = 'block';
         } else {
             progressText.textContent = `Error: ${result.error}`;
             cancelStackingButton.style.display = 'none';
@@ -2195,7 +2239,7 @@ async function openOutputFolder() {
         startButton.disabled = false;
     } catch (error) {
         console.error('Error opening folder:', error);
-        await showMessageDialog('Error Opening Folder', `<p>Failed to open folder:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Opening Folder', `<p>Failed to open folder:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2230,15 +2274,6 @@ async function cancelStacking() {
 // Recipe Editor Functions
 let currentEditingRecipeId = null;
 
-// Generate a simple UUID v4
-function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
 async function openRecipeEditor(recipeId = null) {
     if (recipeId) {
         // Edit mode - load existing recipe
@@ -2251,7 +2286,7 @@ async function openRecipeEditor(recipeId = null) {
         const result = await loadUserRecipeYaml(recipeId);
         if (!result.success) {
             console.error('Error loading recipe:', result.error);
-            await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
+            await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(result.error))}</p>`);
             return;
         }
 
@@ -2263,14 +2298,14 @@ async function openRecipeEditor(recipeId = null) {
 
         const settings = recipe.settings || {};
         document.getElementById('recipeStacking').value = settings.stacking || 'maximum';
-        document.getElementById('recipeQuality').value = settings.quality || 95;
-        document.getElementById('recipePngCompress').value = settings.png_compress_level || 6;
+        document.getElementById('recipeQuality').value = numOr(settings.quality, 100);
+        document.getElementById('recipePngCompress').value = numOr(settings.png_compress_level, 6);
         document.getElementById('recipeTiffCompression').value = settings.tiff_compression || 'deflate';
-        document.getElementById('recipeTrailLength').value = settings.trail_length || 0;
-        document.getElementById('recipeFrameInterval').value = settings.step || 1;
+        document.getElementById('recipeTrailLength').value = numOr(settings.trail_length, 0);
+        document.getElementById('recipeFrameInterval').value = numOr(settings.frame_interval ?? settings.step, 1);
         document.getElementById('recipeTrailGradient').checked = settings.trail_gradient || false;
-        document.getElementById('recipeGradientDecay').value = settings.gradient_decay || 0.85;
-        document.getElementById('recipeGradientPlateau').value = settings.gradient_plateau || 0;
+        document.getElementById('recipeGradientDecay').value = numOr(settings.gradient_decay, 0.85);
+        document.getElementById('recipeGradientPlateau').value = numOr(settings.gradient_plateau, 0);
         document.getElementById('recipeFadeOut').checked = settings.fade_out || false;
         document.getElementById('recipePostProcess').value = settings.post_process || '';
     } else {
@@ -2285,7 +2320,7 @@ async function openRecipeEditor(recipeId = null) {
         document.getElementById('recipeName').value = '';
         document.getElementById('recipeDescription').value = '';
         document.getElementById('recipeStacking').value = 'maximum';
-        document.getElementById('recipeQuality').value = 95;
+        document.getElementById('recipeQuality').value = 100;
         document.getElementById('recipePngCompress').value = 6;
         document.getElementById('recipeTiffCompression').value = 'deflate';
         document.getElementById('recipeTrailLength').value = 0;
@@ -2559,6 +2594,31 @@ function validateOnBlur(event) {
     }
 }
 
+// Read the recipe editor form into a settings object.
+// Note: the backend key for frame skipping is `frame_interval` — the old
+// `step:` key was never read by the Python recipe loader.
+function collectRecipeEditorSettings() {
+    return {
+        stacking: document.getElementById('recipeStacking').value,
+        quality: intOr(document.getElementById('recipeQuality').value, 100),
+        png_compress_level: intOr(document.getElementById('recipePngCompress').value, 6),
+        tiff_compression: document.getElementById('recipeTiffCompression').value,
+        trail_length: intOr(document.getElementById('recipeTrailLength').value, 0),
+        frame_interval: intOr(document.getElementById('recipeFrameInterval').value, 1),
+        trail_gradient: document.getElementById('recipeTrailGradient').checked,
+        gradient_decay: floatOr(document.getElementById('recipeGradientDecay').value, 0.85),
+        gradient_plateau: intOr(document.getElementById('recipeGradientPlateau').value, 0),
+        fade_out: document.getElementById('recipeFadeOut').checked,
+        post_process: document.getElementById('recipePostProcess').value || ''
+    };
+}
+
+// Serialize a recipe via jsyaml so quotes/colons/newlines in names and
+// descriptions can't produce invalid YAML
+function buildRecipeYaml(name, description, settings) {
+    return jsyaml.dump({ name, description, settings });
+}
+
 async function saveRecipe() {
     // Validate all fields before saving
     if (!validateAllRecipeFields()) {
@@ -2571,40 +2631,7 @@ async function saveRecipe() {
     // Use the currentEditingRecipeId (either loaded or newly generated UUID)
     const recipeId = currentEditingRecipeId;
 
-    // Build YAML content
-    const settings = {
-        stacking: document.getElementById('recipeStacking').value,
-        quality: parseInt(document.getElementById('recipeQuality').value),
-        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
-        tiff_compression: document.getElementById('recipeTiffCompression').value,
-        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
-        step: parseInt(document.getElementById('recipeFrameInterval').value),
-        trail_gradient: document.getElementById('recipeTrailGradient').checked,
-        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
-        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
-        fade_out: document.getElementById('recipeFadeOut').checked,
-        post_process: document.getElementById('recipePostProcess').value || ''
-    };
-
-    const yamlContent = `# ${recipeName}
-# ${recipeDescription}
-
-name: "${recipeName}"
-description: "${recipeDescription}"
-
-settings:
-  stacking: ${settings.stacking}
-  quality: ${settings.quality}
-  png_compress_level: ${settings.png_compress_level}
-  tiff_compression: ${settings.tiff_compression}
-  trail_length: ${settings.trail_length}
-  step: ${settings.step}
-  trail_gradient: ${settings.trail_gradient}
-  gradient_decay: ${settings.gradient_decay}
-  gradient_plateau: ${settings.gradient_plateau}
-  fade_out: ${settings.fade_out}
-  post_process: "${settings.post_process}"
-`;
+    const yamlContent = buildRecipeYaml(recipeName, recipeDescription, collectRecipeEditorSettings());
 
     try {
         await invoke('save_user_recipe', { recipeId, content: yamlContent });
@@ -2612,7 +2639,7 @@ settings:
         closeRecipeEditor();
     } catch (error) {
         console.error('Error saving recipe:', error);
-        await showMessageDialog('Error Saving Recipe', `<p>Failed to save recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Saving Recipe', `<p>Failed to save recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2634,7 +2661,7 @@ async function deleteRecipe() {
         closeRecipeEditor();
     } catch (error) {
         console.error('Error deleting recipe:', error);
-        await showMessageDialog('Error Deleting Recipe', `<p>Failed to delete recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Deleting Recipe', `<p>Failed to delete recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2650,36 +2677,10 @@ async function duplicateRecipe() {
     // Generate new UUID for the duplicate
     const newRecipeId = generateUUID();
 
-    // Gather all current form values
+    // Gather all current form values (including post_process, which earlier
+    // versions silently dropped from duplicates)
     const recipeDescription = document.getElementById('recipeDescription').value.trim();
-    const settings = {
-        stacking: document.getElementById('recipeStacking').value,
-        quality: parseInt(document.getElementById('recipeQuality').value),
-        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
-        tiff_compression: document.getElementById('recipeTiffCompression').value,
-        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
-        step: parseInt(document.getElementById('recipeFrameInterval').value),
-        trail_gradient: document.getElementById('recipeTrailGradient').checked,
-        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
-        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
-        fade_out: document.getElementById('recipeFadeOut').checked
-    };
-
-    // Build YAML content for the duplicate
-    const yamlContent = `name: ${newName}
-description: ${recipeDescription}
-settings:
-  stacking: ${settings.stacking}
-  quality: ${settings.quality}
-  png_compress_level: ${settings.png_compress_level}
-  tiff_compression: ${settings.tiff_compression}
-  trail_length: ${settings.trail_length}
-  step: ${settings.step}
-  trail_gradient: ${settings.trail_gradient}
-  gradient_decay: ${settings.gradient_decay}
-  gradient_plateau: ${settings.gradient_plateau}
-  fade_out: ${settings.fade_out}
-`;
+    const yamlContent = buildRecipeYaml(newName, recipeDescription, collectRecipeEditorSettings());
 
     try {
         // Save the duplicate recipe
@@ -2691,7 +2692,7 @@ settings:
         await openRecipeEditor(newRecipeId);
     } catch (error) {
         console.error('Error duplicating recipe:', error);
-        await showMessageDialog('Error Duplicating Recipe', `<p>Failed to duplicate recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Duplicating Recipe', `<p>Failed to duplicate recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2701,41 +2702,6 @@ async function exportRecipe() {
     }
 
     const recipeName = document.getElementById('recipeName').value.trim() || 'recipe';
-    const recipeDescription = document.getElementById('recipeDescription').value.trim();
-
-    // Gather all current form values
-    const settings = {
-        stacking: document.getElementById('recipeStacking').value,
-        quality: parseInt(document.getElementById('recipeQuality').value),
-        png_compress_level: parseInt(document.getElementById('recipePngCompress').value),
-        tiff_compression: document.getElementById('recipeTiffCompression').value,
-        trail_length: parseInt(document.getElementById('recipeTrailLength').value),
-        step: parseInt(document.getElementById('recipeFrameInterval').value),
-        trail_gradient: document.getElementById('recipeTrailGradient').checked,
-        gradient_decay: parseFloat(document.getElementById('recipeGradientDecay').value),
-        gradient_plateau: parseInt(document.getElementById('recipeGradientPlateau').value),
-        fade_out: document.getElementById('recipeFadeOut').checked
-    };
-
-    // Build YAML content
-    const yamlContent = `# ${recipeName}
-# ${recipeDescription}
-
-name: "${recipeName}"
-description: "${recipeDescription}"
-
-settings:
-  stacking: ${settings.stacking}
-  quality: ${settings.quality}
-  png_compress_level: ${settings.png_compress_level}
-  tiff_compression: ${settings.tiff_compression}
-  trail_length: ${settings.trail_length}
-  step: ${settings.step}
-  trail_gradient: ${settings.trail_gradient}
-  gradient_decay: ${settings.gradient_decay}
-  gradient_plateau: ${settings.gradient_plateau}
-  fade_out: ${settings.fade_out}
-`;
 
     try {
         // Generate safe filename from recipe name
@@ -2758,11 +2724,11 @@ settings:
                 recipeId: currentEditingRecipeId,
                 exportPath: filePath
             });
-            await showMessageDialog('Recipe Exported', `<p>Recipe exported successfully!</p><p style="margin-top: 10px; font-size: 12px; word-break: break-all;">${filePath}</p>`);
+            await showMessageDialog('Recipe Exported', `<p>Recipe exported successfully!</p><p style="margin-top: 10px; font-size: 12px; word-break: break-all;">${escapeHtml(String(filePath))}</p>`);
         }
     } catch (error) {
         console.error('Error exporting recipe:', error);
-        await showMessageDialog('Error Exporting Recipe', `<p>Failed to export recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Exporting Recipe', `<p>Failed to export recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2811,11 +2777,10 @@ async function importRecipe() {
             recipeName += ' (Imported)';
         }
 
-        // Update the recipe name in the YAML
-        const updatedYaml = yamlContent.replace(
-            /^name:\s*"?.*"?$/m,
-            `name: "${recipeName}"`
-        );
+        // Re-serialize with the updated name (regex-patching the raw YAML
+        // breaks when the name contains quotes or colons)
+        recipe.name = recipeName;
+        const updatedYaml = jsyaml.dump(recipe);
 
         // Save as new recipe
         await invoke('save_user_recipe', { recipeId: newRecipeId, content: updatedYaml });
@@ -2824,10 +2789,10 @@ async function importRecipe() {
         // Open the editor with the imported recipe for review
         await openRecipeEditor(newRecipeId);
 
-        await showMessageDialog('Recipe Imported', `<p>Recipe "<strong>${recipeName}</strong>" imported successfully!</p>`);
+        await showMessageDialog('Recipe Imported', `<p>Recipe "<strong>${escapeHtml(recipeName)}</strong>" imported successfully!</p>`);
     } catch (error) {
         console.error('Error importing recipe:', error);
-        await showMessageDialog('Error Importing Recipe', `<p>Failed to import recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Importing Recipe', `<p>Failed to import recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -2889,7 +2854,7 @@ async function openRecipePreview() {
         document.getElementById('recipePreviewDialog').style.display = 'block';
     } catch (error) {
         console.error('Error opening recipe preview:', error);
-        await showMessageDialog('Error Opening Preview', `<p>Failed to open recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Opening Preview', `<p>Failed to open recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -3025,7 +2990,7 @@ async function updatePreviewContent(recipeId) {
 
             if (!result.success) {
                 console.error('Error loading user recipe:', result.error);
-                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${result.error}</p>`);
+                await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(result.error))}</p>`);
                 closeRecipePreview();
                 return;
             }
@@ -3058,7 +3023,7 @@ async function updatePreviewContent(recipeId) {
 
         // Format trail settings
         document.getElementById('previewTrailLength').textContent = settings.trail_length !== undefined ? (settings.trail_length === 0 ? '0 (all frames)' : settings.trail_length) : '0 (all frames)';
-        document.getElementById('previewFrameInterval').textContent = settings.step !== undefined ? settings.step : '1';
+        document.getElementById('previewFrameInterval').textContent = settings.frame_interval ?? settings.step ?? '1';
         document.getElementById('previewTrailGradient').textContent = settings.trail_gradient ? '✓ Enabled' : '✗ Disabled';
         document.getElementById('previewGradientDecay').textContent = settings.gradient_decay !== undefined ? settings.gradient_decay : '0.85';
         document.getElementById('previewGradientPlateau').textContent = settings.gradient_plateau !== undefined ? settings.gradient_plateau : '0';
@@ -3076,7 +3041,7 @@ async function updatePreviewContent(recipeId) {
         }
     } catch (error) {
         console.error('Error loading recipe preview:', error);
-        await showMessageDialog('Error Loading Preview', `<p>Failed to load recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Loading Preview', `<p>Failed to load recipe preview:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 
@@ -3102,19 +3067,8 @@ async function loadFromPreview() {
                 throw new Error(`Built-in recipe '${builtinId}' not found`);
             }
 
-            // Map template format to settings format
-            settings = {
-                stacking: template.stacking,
-                quality: template.quality,
-                png_compress_level: template.png_compress_level,
-                tiff_compression: template.tiff_compression,
-                trail_length: template.trail_length,
-                step: template.frame_interval,
-                trail_gradient: template.trail_gradient,
-                gradient_decay: template.gradient_decay,
-                gradient_plateau: template.gradient_plateau,
-                fade_out: template.fade_out
-            };
+            // Template keys already match the settings format
+            settings = { ...template };
         } else if (currentPreviewRecipeId.startsWith('user:')) {
             // Handle user recipe
             const userId = currentPreviewRecipeId.substring(5); // Remove 'user:' prefix
@@ -3129,19 +3083,8 @@ async function loadFromPreview() {
             throw new Error('Invalid recipe ID format');
         }
 
-        // Populate form with recipe settings
-        if (settings.stacking) document.getElementById('stacking').value = settings.stacking;
-        if (settings.quality !== undefined) document.getElementById('quality').value = settings.quality;
-        if (settings.png_compress_level !== undefined) document.getElementById('pngCompressLevel').value = settings.png_compress_level;
-        if (settings.tiff_compression) document.getElementById('tiffCompression').value = settings.tiff_compression;
-        if (settings.trail_length !== undefined) document.getElementById('trailLength').value = settings.trail_length;
-        updateTrailControls();
-        if (settings.step !== undefined) document.getElementById('frameInterval').value = settings.step;
-        if (settings.trail_gradient !== undefined) document.getElementById('trailGradient').checked = settings.trail_gradient;
-        if (settings.gradient_decay !== undefined) document.getElementById('gradientDecay').value = settings.gradient_decay;
-        if (settings.gradient_plateau !== undefined) document.getElementById('gradientPlateau').value = settings.gradient_plateau;
-        if (settings.fade_out !== undefined) document.getElementById('fadeOut').checked = settings.fade_out;
-        if (settings.post_process !== undefined) document.getElementById('postProcess').value = settings.post_process;
+        // Populate form with recipe settings (resets fields the recipe omits)
+        applyRecipeSettingsToForm(settings);
 
         // Update the main recipe dropdown to show this recipe
         document.getElementById('recipe').value = currentPreviewRecipeId;
@@ -3150,7 +3093,7 @@ async function loadFromPreview() {
         closeRecipePreview();
     } catch (error) {
         console.error('Error loading recipe from preview:', error);
-        await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${error}</p>`);
+        await showMessageDialog('Error Loading Recipe', `<p>Failed to load recipe:</p><p style="margin-top: 10px; color: #f44336;">${escapeHtml(String(error))}</p>`);
     }
 }
 

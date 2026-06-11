@@ -17,9 +17,6 @@ settings:
   # High quality output for detailed star field
   quality: 95
 
-  # Process all frames by default (no step)
-  step: 1
-
 # Usage examples:
 #   python -m imgstax images/ --recipe stars
 #   python -m imgstax images/ --recipe stars -t 50  # Override trail length

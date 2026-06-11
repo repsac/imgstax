@@ -1,12 +1,7 @@
 import time
-import shutil
 import logging
 import traceback
 from collections import deque
-from pathlib import Path
-
-import numpy
-from PIL import Image
 
 try:
     from tqdm import tqdm
@@ -16,7 +11,13 @@ except ImportError:
 
 from .config import StackConfig
 from .file_utils import find_input_images, get_output_filepath
-from .image_utils import validate_image_dimensions, stack_images
+from .image_utils import (
+    ProgressiveStacker,
+    load_image_array,
+    save_image_array,
+    stack_images,
+    validate_image_dimensions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,27 +100,37 @@ def stack(config: StackConfig) -> None:
 
     logger.info("%d total images to process (from %d found)", total_images, len(all_images))
 
-    # Validate all images have the same dimensions
+    # Validate all images have the same dimensions and pick a common mode
+    target_mode = 'RGB'
     if not config.dryrun:
-        validate_image_dimensions(images)
+        _, target_mode = validate_image_dimensions(images)
 
     ext = images[0].suffix
     stacked_images = [get_output_filepath(config.output_path, config.prefix, 1, ext)]
 
     message = "[DRYRUN] Copying" if config.dryrun else "Copying"
     logger.info("%s %s to %s", message, images[0], stacked_images[0])
-    if not config.dryrun:
-        shutil.copyfile(images[0], stacked_images[0])
 
-    # Pre-populate frame cache for trail_length mode so each image is decoded once
+    # Pre-populate frame cache (trail mode) or running accumulator (non-trail mode).
+    # Frame 1 is decoded and re-encoded like every other frame so EXIF orientation
+    # and encoding stay consistent across the whole sequence.
     frame_cache = None
-    if config.trail_length > 0 and not config.dryrun:
-        frame_cache = deque(maxlen=config.trail_length)
-        with Image.open(images[0]) as img:
-            frame_cache.append(numpy.array(img))
+    stacker = None
+    if not config.dryrun:
+        first_array = load_image_array(images[0], target_mode)
+        save_image_array(first_array, stacked_images[0], config.quality,
+                         config.png_compress_level, config.tiff_compression)
+        if config.trail_length > 0:
+            frame_cache = deque(maxlen=config.trail_length)
+            frame_cache.append(first_array)
+        else:
+            stacker = ProgressiveStacker(config.stacking_name)
+            stacker.add(first_array)
 
-    # Set up progress iterator
-    if HAS_TQDM:
+    # Set up progress iterator. tqdm is skipped in JSON mode so machine-readable
+    # progress always reaches stdout.
+    use_tqdm = HAS_TQDM and not config.progress_json
+    if use_tqdm:
         iterator = tqdm(enumerate(images[1:], start=2),
                        total=len(images)-1,
                        desc="Stacking images",
@@ -128,16 +139,18 @@ def stack(config: StackConfig) -> None:
         iterator = enumerate(images[1:], start=2)
 
     for index, image in iterator:
-        if not HAS_TQDM:
+        if not use_tqdm:
             _progress(index, total_images, image.name if config.progress_json else None, config.progress_json)
 
         stacked_images.append(get_output_filepath(config.output_path, config.prefix, index, ext))
 
+        if config.dryrun:
+            logger.info("[DRYRUN] Would stack %s to %s", image, stacked_images[-1])
+            continue
+
         if config.trail_length > 0:
             # Read new frame once and add to cache (oldest frame evicted automatically)
-            if not config.dryrun:
-                with Image.open(image) as img:
-                    frame_cache.append(numpy.array(img))
+            frame_cache.append(load_image_array(image, target_mode))
 
             # Determine effective window for fade-out
             if config.fade_out and index > total_images - config.trail_length:
@@ -151,12 +164,13 @@ def stack(config: StackConfig) -> None:
 
             stack_images(cached_arrays, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.png_compress_level, config.tiff_compression, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
         else:
-            # No trail length — stack previous output with new image (2 file reads)
-            if not HAS_TQDM:
-                logger.info("Stacking %s with %d: %s", stacked_images[-2], index, image)
-            subset_images = (stacked_images[-2], image)
-
-            stack_images(subset_images, stacked_images[-1], config.stacking_func, config.dryrun, config.quality, config.png_compress_level, config.tiff_compression, config.trail_gradient, config.gradient_decay, config.gradient_plateau)
+            # No trail length — accumulate in memory so composite N is the exact
+            # stack of frames 1..N (and JPEG output avoids generational re-encoding)
+            if not use_tqdm:
+                logger.info("Stacking frame %d: %s", index, image)
+            stacker.add(load_image_array(image, target_mode))
+            save_image_array(stacker.composite(), stacked_images[-1], config.quality,
+                             config.png_compress_level, config.tiff_compression)
 
     # Emit completion message for JSON mode
     if config.progress_json:

@@ -37,11 +37,11 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 /// Get the Python interpreter path.
 /// Searches for Python in multiple locations with priority order.
 /// In production, this won't be used as we'll have the bundled binary.
-fn get_python_path() -> String {
+fn get_python_path() -> Result<String, String> {
     // 1. Check environment variable (explicit override)
     if let Ok(path) = std::env::var("IMGSTAX_PYTHON_PATH") {
         if Path::new(&path).exists() {
-            return path;
+            return Ok(path);
         } else {
             eprintln!("Warning: IMGSTAX_PYTHON_PATH is set but path doesn't exist: {}", path);
         }
@@ -66,7 +66,7 @@ fn get_python_path() -> String {
 
         for path in &common_paths {
             if Path::new(path).exists() {
-                return path.clone();
+                return Ok(path.clone());
             }
         }
 
@@ -91,7 +91,7 @@ fn get_python_path() -> String {
                             // Test if it works by trying to get version
                             if let Ok(test) = Command::new(path).arg("--version").output() {
                                 if test.status.success() {
-                                    return path.to_string();
+                                    return Ok(path.to_string());
                                 }
                             }
                         }
@@ -102,7 +102,7 @@ fn get_python_path() -> String {
 
         // Last resort: try "python" directly and hope the system resolves it correctly
         // This will fail at runtime if Python isn't properly installed
-        return "python".to_string();
+        return Ok("python".to_string());
     } else {
         // Unix-style paths (macOS/Linux)
         let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
@@ -115,7 +115,7 @@ fn get_python_path() -> String {
 
         for path in &common_paths {
             if Path::new(path).exists() {
-                return path.clone();
+                return Ok(path.clone());
             }
         }
 
@@ -125,7 +125,7 @@ fn get_python_path() -> String {
                 if let Ok(path) = String::from_utf8(output.stdout) {
                     let path = path.trim().to_string();
                     if !path.is_empty() && Path::new(&path).exists() {
-                        return path;
+                        return Ok(path);
                     }
                 }
             }
@@ -133,33 +133,15 @@ fn get_python_path() -> String {
     }
 
     // No Python found - provide helpful error message
-    panic!(
-        "\n\n\
-        ╔════════════════════════════════════════════════════════════════╗\n\
-        ║  ERROR: Python 3 interpreter not found                        ║\n\
-        ╚════════════════════════════════════════════════════════════════╝\n\
-        \n\
-        The imgstax desktop app requires Python 3 with imgstax installed\n\
-        for development mode.\n\
-        \n\
-        Solutions:\n\
-        \n\
-        1. Set the IMGSTAX_PYTHON_PATH environment variable:\n\
-           export IMGSTAX_PYTHON_PATH=/path/to/your/python3\n\
-        \n\
-        2. Ensure python3 is in your PATH:\n\
-           which python3  # Should return a valid path\n\
-        \n\
-        3. Install Python 3 in a standard location:\n\
-           - macOS: brew install python3\n\
-           - Linux: apt install python3 (or equivalent)\n\
-        \n\
-        After installing Python, make sure imgstax is installed:\n\
-           pip install -e .\n\
-        \n\
-        For more information, see the README.md\n\
-        \n"
-    );
+    Err(
+        "Python 3 interpreter not found. The imgstax desktop app requires \
+         Python 3 with imgstax installed for development mode. Solutions: \
+         (1) set IMGSTAX_PYTHON_PATH to your python3 path, \
+         (2) ensure python3 is in your PATH, \
+         (3) install Python 3 (macOS: brew install python3, Linux: apt install python3). \
+         After installing Python, install imgstax with: pip install -e ."
+            .to_string(),
+    )
 }
 
 /// Check if we're running in production mode (bundled binary available).
@@ -189,7 +171,7 @@ fn has_bundled_binary() -> bool {
 /// Returns (command_path, base_args) to prepend before any subcommand flags.
 /// - Production: (path/to/imgstax[.exe], [])
 /// - Development: (python_path, ["-m", "imgstax"])
-fn get_imgstax_cmd() -> (String, Vec<String>) {
+fn get_imgstax_cmd() -> Result<(String, Vec<String>), String> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|p| p.to_path_buf()));
@@ -202,12 +184,12 @@ fn get_imgstax_cmd() -> (String, Vec<String>) {
         };
         let binary_path = dir.join(binary_name);
         if binary_path.exists() {
-            return (binary_path.to_string_lossy().to_string(), vec![]);
+            return Ok((binary_path.to_string_lossy().to_string(), vec![]));
         }
     }
 
     // Development: fall back to Python -m imgstax
-    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+    Ok((get_python_path()?, vec!["-m".to_string(), "imgstax".to_string()]))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -372,7 +354,7 @@ fn play_notification_sound(path: String) -> Result<(), String> {
         let script = format!(
             "Add-Type -AssemblyName System.Windows.Forms; \
              [System.Media.SoundPlayer]::new('{}').PlaySync()",
-            path.replace('\'', "\\'")
+            path.replace('\'', "''")
         );
         Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -403,7 +385,7 @@ fn speak_notification(text: String) -> Result<(), String> {
         let script = format!(
             "Add-Type -AssemblyName System.Speech; \
              (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{}')",
-            text.replace('\'', "\\'")
+            text.replace('\'', "''")
         );
         Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -433,7 +415,7 @@ struct PostProcRecipe {
 #[tauri::command]
 async fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let (cmd, mut args) = get_imgstax_cmd();
+        let (cmd, mut args) = get_imgstax_cmd()?;
         args.push("--postproc-list".to_string());
 
         let mut command = Command::new(&cmd);
@@ -458,7 +440,7 @@ async fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
 
 #[tauri::command]
 fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--postproc-get".to_string());
     args.push(recipe_name.clone());
 
@@ -489,7 +471,7 @@ fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String
 
 #[tauri::command]
 fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--postproc-save".to_string());
     args.push(recipe_json);
 
@@ -513,7 +495,7 @@ fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
 
 #[tauri::command]
 fn delete_postproc_recipe(recipe_path: String) -> Result<bool, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--postproc-delete".to_string());
     args.push(recipe_path);
 
@@ -550,7 +532,7 @@ async fn execute_postproc(
     let log_path_str = log_path.to_string_lossy().to_string();
 
     // Build command: bundled binary in production, python -m imgstax in dev
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--postproc-execute".to_string());
     args.push(recipe_name.clone());
     args.push("--working-dir".to_string());
@@ -733,7 +715,7 @@ async fn execute_postproc(
 
 #[tauri::command]
 fn get_recipes() -> Result<Vec<Recipe>, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--get-recipes-json".to_string());
 
     let mut command = Command::new(&cmd);
@@ -1212,7 +1194,7 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         (binary_path.to_string_lossy().to_string(), base_args)
     } else {
         // Development: use Python with -m imgstax
-        let python_path = get_python_path();
+        let python_path = get_python_path()?;
         let mut python_args = vec!["-m".to_string(), "imgstax".to_string()];
         python_args.extend(base_args);
         (python_path, python_args)
@@ -1305,7 +1287,8 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     if config.export_recipe {
         let recipe_path = Path::new(&output_abs).join("recipe.yaml");
 
-        // Build recipe YAML content
+        // Build recipe YAML content. Settings must be nested under a
+        // `settings:` key — the Python recipe loader reads data['settings'].
         let mut recipe_content = format!(
             "# imgstax Recipe\n\
              # Generated automatically with exported images\n\
@@ -1313,10 +1296,11 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
              name: Exported Recipe\n\
              description: Configuration used for this stacking export\n\
              \n\
-             stacking: {}\n\
-             quality: {}\n\
-             png_compress_level: {}\n\
-             tiff_compression: {}\n",
+             settings:\n\
+             \x20 stacking: {}\n\
+             \x20 quality: {}\n\
+             \x20 png_compress_level: {}\n\
+             \x20 tiff_compression: {}\n",
             config.stacking,
             config.quality,
             config.png_compress_level,
@@ -1325,24 +1309,24 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
 
         // Add optional parameters if they were set
         if let Some(start_frame) = config.start_frame {
-            recipe_content.push_str(&format!("start_frame: {}\n", start_frame));
+            recipe_content.push_str(&format!("  start_frame: {}\n", start_frame));
         }
         if let Some(end_frame) = config.end_frame {
-            recipe_content.push_str(&format!("end_frame: {}\n", end_frame));
+            recipe_content.push_str(&format!("  end_frame: {}\n", end_frame));
         }
         if config.frame_interval > 1 {
-            recipe_content.push_str(&format!("frame_interval: {}\n", config.frame_interval));
+            recipe_content.push_str(&format!("  frame_interval: {}\n", config.frame_interval));
         }
         if config.trail_length > 0 {
-            recipe_content.push_str(&format!("trail_length: {}\n", config.trail_length));
+            recipe_content.push_str(&format!("  trail_length: {}\n", config.trail_length));
         }
         if config.trail_gradient {
-            recipe_content.push_str(&format!("trail_gradient: true\n"));
-            recipe_content.push_str(&format!("gradient_decay: {}\n", config.gradient_decay));
-            recipe_content.push_str(&format!("gradient_plateau: {}\n", config.gradient_plateau));
+            recipe_content.push_str("  trail_gradient: true\n");
+            recipe_content.push_str(&format!("  gradient_decay: {}\n", config.gradient_decay));
+            recipe_content.push_str(&format!("  gradient_plateau: {}\n", config.gradient_plateau));
         }
         if config.fade_out {
-            recipe_content.push_str("fade_out: true\n");
+            recipe_content.push_str("  fade_out: true\n");
         }
 
         // Write recipe file

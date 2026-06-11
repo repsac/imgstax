@@ -47,8 +47,12 @@ def setup_output(config: 'StackConfig') -> None:
     if config.logfile:
         logfile = config.output_path / 'output.log'
         handler = logging.FileHandler(logfile)
-        handler.setFormatter(logger.handlers[0].formatter)
-        logger.addHandler(handler)
+        # Attach to the package logger — it owns the stream handler/formatter,
+        # and child loggers (core, image_utils, ...) propagate up to it
+        pkg_logger = logging.getLogger('imgstax')
+        if pkg_logger.handlers:
+            handler.setFormatter(pkg_logger.handlers[0].formatter)
+        pkg_logger.addHandler(handler)
 
 
 def main() -> None:
@@ -79,13 +83,14 @@ def main() -> None:
                         action=argparse.BooleanOptionalAction,
                         help="Testing only, does not create any files or folders.")
 
+    # Note: tunable arguments default to None so an omitted flag can be told
+    # apart from an explicitly typed value. CLI > recipe > default precedence
+    # is applied in get_setting() below.
     parser.add_argument('-p', '--prefix',
-                        default=PREFIX,
-                        help="File name prefix for the stacked images.")
+                        help=f"File name prefix for the stacked images (default: {PREFIX}).")
 
     parser.add_argument('-s', '--stacking',
-                        default='maximum',
-                        help="Declare the stacking function to process images with.")
+                        help="Declare the stacking function to process images with (default: maximum).")
 
     parser.add_argument('-l', '--logfile',
                         action=argparse.BooleanOptionalAction,
@@ -146,8 +151,7 @@ def main() -> None:
 
     parser.add_argument('-t', '--trail-length',
                         type=int,
-                        default=0,
-                        help="Limit the length of the trails.")
+                        help="Limit the length of the trails (default: 0).")
 
     parser.add_argument('-f', '--fade-out',
                         action=argparse.BooleanOptionalAction,
@@ -159,27 +163,22 @@ def main() -> None:
 
     parser.add_argument('--gradient-decay',
                         type=float,
-                        default=0.85,
                         help="Decay rate for gradient (0.0-1.0, default: 0.85). Higher = slower fade, lower = faster fade")
 
     parser.add_argument('--gradient-plateau',
                         type=int,
-                        default=0,
                         help="Number of newest frames at full intensity before decay begins (default: 0)")
 
     parser.add_argument('-q', '--quality',
                         type=int,
-                        default=100,
                         help="JPEG output quality (1-100, default: 100)")
 
     parser.add_argument('--png-compress-level',
                         type=int,
-                        default=6,
                         help="PNG compression level (0-9, default: 6). 0=no compression, 9=maximum compression")
 
     parser.add_argument('--tiff-compression',
                         choices=['none', 'lzw', 'deflate', 'jpeg'],
-                        default='deflate',
                         help="TIFF compression method (default: deflate)")
 
     args = parser.parse_args()
@@ -227,9 +226,20 @@ def main() -> None:
 
     if args.postproc_save:
         import json as _json
-        from .postproc_recipe_loader import save_postproc_recipe as _save_recipe
-        recipe = _json.loads(args.postproc_save)
-        path = _save_recipe(recipe)
+        from .postproc_recipe_loader import (
+            save_postproc_recipe as _save_recipe,
+            PostProcessingRecipeError as _RecipeError,
+        )
+        try:
+            recipe = _json.loads(args.postproc_save)
+        except _json.JSONDecodeError as e:
+            print(f'Error: invalid recipe JSON: {e}', file=sys.stderr)
+            sys.exit(1)
+        try:
+            path = _save_recipe(recipe)
+        except _RecipeError as e:
+            print(f'Error: {e}', file=sys.stderr)
+            sys.exit(1)
         print(str(path))
         sys.exit(0)
 
@@ -275,12 +285,16 @@ def main() -> None:
                 log_file.flush()
             print(_json.dumps({'type': 'progress', 'stream': stream, 'line': line}), flush=True)
 
-        result = _execute(
-            recipe['command'],
-            args.working_dir,
-            recipe.get('env_vars', {}),
-            progress_callback
-        )
+        try:
+            result = _execute(
+                recipe['command'],
+                args.working_dir,
+                recipe.get('env_vars', {}),
+                progress_callback
+            )
+        except ValueError as e:
+            # e.g. working directory does not exist — keep the JSON contract
+            result = {'success': False, 'error': str(e)}
 
         if log_file:
             log_file.write('\n=== Command Completed ===\n')
@@ -289,7 +303,9 @@ def main() -> None:
             log_file.close()
 
         print(_json.dumps(result), flush=True)
-        sys.exit(0)
+        # Exit code mirrors the result so shell scripts can detect failure
+        # (the GUI parses the JSON line and ignores the exit code)
+        sys.exit(0 if result.get('success') else 1)
 
     # Validate input is provided (unless listing recipes)
     if not args.input:
@@ -314,7 +330,7 @@ def main() -> None:
             sys.exit(1)
 
     # Get stacking function (from recipe or CLI)
-    stacking_name = args.stacking if args.stacking != 'maximum' else recipe_settings.get('stacking', 'maximum')
+    stacking_name = args.stacking if args.stacking is not None else recipe_settings.get('stacking', 'maximum')
     try:
         stacking_func, stacking_name = get_stacking_function(stacking_name)
     except ValueError as e:
@@ -346,21 +362,21 @@ def main() -> None:
     config = StackConfig(
         input_path=Path(args.input),
         output_path=output_path,
-        prefix=get_setting(args.prefix if args.prefix != PREFIX else None, 'prefix', PREFIX),
+        prefix=get_setting(args.prefix, 'prefix', PREFIX),
         stacking_func=stacking_func,
         stacking_name=stacking_name,
         start_frame=get_setting(args.start_frame, 'start_frame', None),
         end_frame=get_setting(args.end_frame, 'end_frame', None),
         frame_interval=get_setting(args.frame_interval, 'frame_interval', 1),
-        trail_length=get_setting(args.trail_length if args.trail_length != 0 else None, 'trail_length', 0),
+        trail_length=get_setting(args.trail_length, 'trail_length', 0),
         fade_out=get_setting(args.fade_out, 'fade_out', False),
         trail_gradient=get_setting(args.trail_gradient, 'trail_gradient', False),
-        gradient_decay=get_setting(args.gradient_decay if args.gradient_decay != 0.85 else None, 'gradient_decay', 0.85),
-        gradient_plateau=get_setting(args.gradient_plateau if args.gradient_plateau != 0 else None, 'gradient_plateau', 0),
+        gradient_decay=get_setting(args.gradient_decay, 'gradient_decay', 0.85),
+        gradient_plateau=get_setting(args.gradient_plateau, 'gradient_plateau', 0),
         dryrun=get_setting(args.dryrun, 'dryrun', False),
-        quality=get_setting(args.quality if args.quality != 100 else None, 'quality', 100),
-        png_compress_level=get_setting(args.png_compress_level if args.png_compress_level != 6 else None, 'png_compress_level', 6),
-        tiff_compression=get_setting(args.tiff_compression if args.tiff_compression != 'deflate' else None, 'tiff_compression', 'deflate'),
+        quality=get_setting(args.quality, 'quality', 100),
+        png_compress_level=get_setting(args.png_compress_level, 'png_compress_level', 6),
+        tiff_compression=get_setting(args.tiff_compression, 'tiff_compression', 'deflate'),
         logfile=get_setting(args.logfile, 'logfile', False),
         progress_json=args.progress_json
     )
@@ -368,10 +384,11 @@ def main() -> None:
     # Set up output directory and logging
     setup_output(config)
 
-    # Run the stacking process
+    # Run the stacking process. TypeError is included so recipes with
+    # wrong-typed values (e.g. quality: "high") fail with a clean message.
     try:
         stack(config)
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, TypeError) as e:
         logger.error("Error: %s", e)
         sys.exit(1)
     except Exception as e:
