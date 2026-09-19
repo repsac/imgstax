@@ -65,7 +65,7 @@ npm install  # If not already done
 npm run tauri build
 ```
 
-This will create platform-specific installers in `desktop-app/src-tauri/target/release/bundle/`:
+This creates installers for your platform in `desktop-app/src-tauri/target/release/bundle/`:
 
 - **macOS**: `.dmg` and `.app` in `macos/`
 - **Windows**: `.exe` and `.msi` in `nsis/` and `msi/`
@@ -105,7 +105,7 @@ chmod +x desktop-app/src-tauri/target/release/bundle/appimage/imgstax_*.AppImage
 
 ### 4. Distribution
 
-The generated installers are self-contained and can be distributed directly to users. No Python installation required!
+You can distribute the generated installers directly. Users do not need to install Python.
 
 **GitHub Releases** (recommended):
 1. Create a version tag: `git tag -a v2.4.0 -m "Release v2.4.0"`

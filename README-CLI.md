@@ -1,6 +1,6 @@
 # imgstax CLI - Command-Line Image Sequence Stacking
 
-A specialized command-line tool for creating **animated progressions** from image sequences using various stacking algorithms. imgstax processes sequential frames (from timelapse or video) to generate frame-by-frame stacked outputs, perfect for star trail animations, time-lapse effects, and visualizing motion over time.
+imgstax stacks image sequences frame by frame from the command line. Use frames from time-lapse photography or video to create **animations** of star trails, light trails, and other motion effects.
 
 > **Looking for the GUI?** Check out the [Desktop Application README](README.md) for the graphical interface with visual file browser, recipe editor, and batch processing queue.
 
@@ -24,8 +24,8 @@ A specialized command-line tool for creating **animated progressions** from imag
 - **Progress Bars**: Optional tqdm integration for visual progress (install with `pip install tqdm`)
 - **Image Validation**: Automatic dimension validation prevents runtime errors
 - **Quality Control**: Adjustable JPEG quality, PNG compression level, and TIFF compression formats
-- **Better Error Messages**: Comprehensive error reporting
-- **Modular Architecture**: Clean, maintainable codebase
+- **Error Messages**: Details to help diagnose failures
+- **Modular Architecture**: Separate modules for stacking, configuration, and file handling
 - **Configuration Validation**: Early detection of invalid parameters
 - **Recipe System**: YAML-based presets for common use cases (v2.1)
 - **Trail Gradient**: Weighted blending for comet tail effects (v2.1)
@@ -118,7 +118,7 @@ imgstax /path/to/bird_images -s minimum -t 15 -g -o murmurations
 
 ## Recipes & Presets
 
-Recipes are pre-configured settings for common use cases. No need to memorize CLI arguments!
+Recipes save settings for common tasks so you can reuse them without entering each option.
 
 ### Using Built-in Recipes
 
@@ -173,7 +173,7 @@ The Desktop GUI includes a built-in Recipe Editor for creating and managing cust
 3. Click "Save Recipe" to create your custom recipe
 4. User recipes appear in the dropdown with a "(User)" suffix
 
-User recipes are stored in OS-appropriate locations:
+User recipes are stored here:
 - **macOS**: `~/Library/Application Support/imgstax-desktop/user_recipes/`
 - **Linux**: `~/.config/imgstax-desktop/user_recipes/`
 - **Windows**: `%APPDATA%/imgstax-desktop/user_recipes/`
@@ -243,7 +243,7 @@ options:
 
 ### Trail Gradient (Comet Tail Effect)
 
-The `--trail-gradient` option creates a comet tail effect where the trail progressively fades along its length, with the newest frame at full intensity and older frames gradually decreasing.
+The `--trail-gradient` option creates a comet tail effect. The newest frame stays at full intensity while older frames fade.
 
 **How it works:**
 - Uses exponential decay weighting (default 0.85 decay factor)
@@ -271,7 +271,7 @@ imgstax traffic_images/ -t 20 -g -s maximum
 
 ### Gradient and Subject Contrast: Choosing the Right Stacking Mode
 
-The visible length of a gradient trail depends on the **contrast between your subject and its background**. This is the most important factor when tuning the gradient effect.
+The visible length of a gradient trail depends on the **contrast between your subject and its background**.
 
 #### Bright subjects on dark backgrounds (e.g. star trails, fireworks)
 
@@ -283,13 +283,13 @@ imgstax stars/ -t 30 -g -s maximum --gradient-decay 0.85
 
 #### Dark subjects on bright backgrounds (e.g. bird murmurations, aircraft)
 
-Use **minimum stacking**. With maximum stacking, dark subject pixels (~50–80) get weighted below the bright sky (~180–220) almost immediately — the trail is invisible after 1–2 frames. Minimum stacking fades old pixels toward white, keeping them darker than the sky background so the trail shows as a dark smear.
+Use **minimum stacking**. With maximum stacking, dark subject pixels (~50–80) get weighted below the bright sky (~180–220) almost immediately, so the trail disappears after 1–2 frames. Minimum stacking fades old pixels toward white, keeping them darker than the sky background so the trail shows as a dark smear.
 
 ```bash
 imgstax birds/ -t 30 -g -s minimum --gradient-decay 0.95
 ```
 
-> **Why maximum stacking fails for dark subjects:** With `decay=0.85`, a dark bird pixel (~60) after just one frame of decay becomes `60 × 0.85 = 51`. The sky in the new frame is ~200. `max(200, 51) = 200` — the trail is immediately erased by the background.
+> **Why maximum stacking fails for dark subjects:** With `decay=0.85`, a dark bird pixel (~60) after just one frame of decay becomes `60 × 0.85 = 51`. The sky in the new frame is ~200. `max(200, 51) = 200`, so the background erases the trail.
 
 #### Choosing a decay factor
 
@@ -305,7 +305,7 @@ The default decay of `0.85` works well for star trails but fades quickly for sub
 These estimates assume a subject/background contrast ratio typical of dark birds on sky (~60 vs ~200). Star trails on dark sky will show significantly longer trails at the same decay value.
 
 ```bash
-# Bird murmurations — minimum stacking, higher decay for longer trail
+# Bird murmurations: minimum stacking, higher decay for a longer trail
 imgstax birds/ -t 35 -g -s minimum --gradient-decay 0.95
 
 # Fine-tune the plateau (frames at full intensity before decay begins)
@@ -472,7 +472,7 @@ imgstax/
 
 ### When to Use imgstax
 
-**Perfect for:**
+**Useful for:**
 - **Star Trail Animations**: Progressive stacking to create animated star trail sequences
 - **Time-Lapse Effects**: Stacking sequential frames to show motion accumulation over time
 - **Traffic Light Trails**: Animated progression of vehicle light trails
@@ -493,7 +493,7 @@ imgstax/
 - **DeepSkyStacker**: Specialized for deep sky astrophotography with calibration frames
 - **PixInsight**: Professional-grade astronomical image processing
 
-imgstax focuses on **progressive sequential stacking for animations**, not single-image perfection with calibration workflows.
+imgstax is designed to build animations from stacked image sequences.
 
 ## Performance Tips
 
@@ -553,7 +553,7 @@ MIT License - see file header for full text
 
 ## Contributing
 
-Contributions welcome! Areas for future development:
+Contributions are welcome in these areas:
 - Direct video input/output support (currently requires pre-extraction)
 - Parallel processing for speed improvements
 - Resume capability for interrupted processes

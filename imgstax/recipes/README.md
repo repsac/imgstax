@@ -1,6 +1,6 @@
 # imgstax Recipes
 
-This directory contains built-in recipe presets for common image stacking use cases.
+Built-in recipes provide settings for common stacking tasks.
 
 ## Using Recipes
 
@@ -169,7 +169,7 @@ python -m imgstax images/ --recipe stars --trail-length 50
 
 ## Recipe Development
 
-To create effective recipes:
+When creating recipes:
 
 1. **Test settings** with small image sets first
 2. **Document** the use case in the description
