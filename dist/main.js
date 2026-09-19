@@ -2069,9 +2069,18 @@ function previewImage(imagePath) {
         const safeImageUrl = escapeHtml(imageUrl);
 
         previewContentEl.innerHTML = `
-            <img src="${safeImageUrl}" class="preview-image" alt="Preview" onerror="this.parentElement.innerHTML='<div class=\\'preview-empty\\'>Failed to load image</div>'">
+            <img src="${safeImageUrl}" class="preview-image" alt="Preview">
             <button class="maximize-button" id="maximizeButton">🔍 Maximize</button>
         `;
+
+        // Registered here rather than as an inline onerror attribute: the CSP
+        // script-src is 'self' only, so inline handlers would never run.
+        const previewImgEl = previewContentEl.querySelector('.preview-image');
+        if (previewImgEl) {
+            previewImgEl.addEventListener('error', () => {
+                previewContentEl.innerHTML = '<div class="preview-empty">Failed to load image</div>';
+            });
+        }
 
         // Add click handler for maximize button
         const maximizeButton = document.getElementById('maximizeButton');

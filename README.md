@@ -9,7 +9,7 @@ imgstax Desktop stacks image sequences frame by frame to create **animations**. 
 
 ## Download
 
-### Latest Release (v2.4.0)
+### Latest Release (v2.4.1)
 
 - **macOS** (Apple Silicon): [Download DMG](https://github.com/repsac/imgstax/releases/latest)
 - **Windows** (x64): [Download MSI](https://github.com/repsac/imgstax/releases/latest)
@@ -485,7 +485,14 @@ imgstax is designed to build animations from stacked image sequences.
 
 ## Version History
 
-### v2.4.0 (Current)
+### v2.4.1 (Current)
+- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is now granted per directory at runtime instead of exposing the whole filesystem
+- **Subprocess lifecycle**: the stacking job is tracked by process handle rather than PID, so cancel can no longer signal a recycled PID; starting a second job now returns a clean error instead of orphaning the first
+- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
+- **Removed** the unused `tauri-plugin-fs` dependency
+- **Recipe listing** no longer fails outright when a single user recipe file is malformed
+
+### v2.4.0
 - **Completion Notification Sound**: System sound or TTS alert when stacking finishes (macOS/Windows)
 - **About Dialog**: Version, author, license, and GitHub link
 - **Window Size Constraints**: Max width/height prevent excessive whitespace

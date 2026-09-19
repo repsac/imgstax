@@ -1,12 +1,21 @@
 # Technical Debt: Deferred Hardening & Refactoring
 
-This document captures two areas of known technical debt that were identified during the
-June 2026 bug-fix review but deliberately deferred, because both involve design decisions
+This document captures areas of known technical debt that were identified during the
+June 2026 bug-fix review but deliberately deferred, because they involve design decisions
 and behavioral trade-offs rather than straightforward fixes. Each section describes the
 problem, why it matters, what could go wrong if left as-is, and a recommended path to
 resolution.
 
-Status of each item: **identified, analyzed, not yet implemented.**
+Status:
+
+| Item | Status |
+|---|---|
+| 1. Webview security configuration | **Resolved** (September 2026) |
+| 2. Subprocess lifecycle & blocking commands | **Resolved** (September 2026) |
+| 3. `main.js` modularization | Identified, analyzed, not yet implemented |
+
+The problem analysis below is kept as a record of why each change was made. Where the
+original recommendation turned out to be wrong or improvable, the resolution notes say so.
 
 ---
 
@@ -38,19 +47,19 @@ Three settings in `desktop-app/src-tauri/tauri.conf.json` weaken the webview san
 ### Why it matters
 
 These three settings compound. The threat model for a desktop app like imgstax is
-HTML injection through untrusted input — and imgstax *has* untrusted input paths:
+HTML injection through untrusted input. In imgstax, this input includes
 imported recipe YAML files (names, descriptions), error strings echoed from
 subprocesses, and file names from arbitrary directories the user opens.
 
 The June 2026 fixes closed every known injection sink (all `innerHTML`
 interpolations now go through `escapeHtml()`, and recipe YAML is serialized with
 `jsyaml.dump` instead of string templates). However, defense-in-depth matters
-precisely because sink-by-sink escaping is easy to regress — one future
+because escaping at each insertion point is easy to overlook. One future
 `innerHTML = \`...\${name}...\`` reintroduces the vector. If that happens today:
 
 1. `'unsafe-inline'` lets the injected script run.
 2. `scope: ["**"]` lets it read `~/.ssh/id_ed25519`, browser cookie stores,
-   keychain-adjacent files — anything the user can read — via `fetch('asset://...')`.
+   and keychain-adjacent files (anything the user can read) via `fetch('asset://...')`.
 3. The script also has `window.__TAURI__.invoke`, which includes commands like
    `execute_postproc` (runs arbitrary recipe commands) and `delete_user_recipe`.
 
@@ -61,7 +70,7 @@ file read + command execution. With a tightened config it would be a cosmetic bu
 
 - **Asset scope:** the image preview feature uses `convertFileSrc()`
   (`dist/main.js`, `showPreview`) to display frames from whatever directory the
-  user picks — which may legitimately be on an external volume, a NAS mount, or
+  user picks, including an external volume, a NAS mount, or
   anywhere else. A static narrowed scope (e.g. `$HOME/**`) would silently break
   previews for those users. The right fix is *dynamic* scoping, which is a code
   change, not a config change.
@@ -74,7 +83,7 @@ file read + command execution. With a tightened config it would be a cosmetic bu
 
 In priority order:
 
-1. **Disable devtools in release builds** — zero-risk, one line:
+1. **Disable devtools in release builds:**
    ```json
    "devtools": false
    ```
@@ -93,7 +102,7 @@ In priority order:
    This preserves previews from any location the user *explicitly chose*, while the
    webview can no longer read paths the user never pointed the app at. Note that
    scope grants are per-session, which is the desired behavior here.
-   *(Effort: small — one `AppHandle` parameter added to the directory-selection
+   *(Effort: small; one `AppHandle` parameter added to the directory-selection
    command, plus the call above.)*
 
 3. **Remove `'unsafe-inline'` from `script-src`.**
@@ -109,8 +118,60 @@ In priority order:
 
 4. **Optional, later:** prune the `invoke()` surface reachable from the webview.
    `tauri-plugin-fs` is initialized but granted zero permissions in
-   `capabilities/default.json` — remove the plugin and its Cargo dependency, since
+   `capabilities/default.json`. Remove the plugin and its Cargo dependency, since
    recipe import/export already goes through dedicated Rust commands.
+
+### Resolution (September 2026)
+
+Implemented, with two deviations from the recommendations above.
+
+1. **Asset scope.** The static scope is now `[]` in `tauri.conf.json`, and
+   `get_file_list` extends it at runtime for each directory the user opens:
+   ```rust
+   let canonical_dir = dir_path.canonicalize()?;
+   app.asset_protocol_scope().allow_directory(&canonical_dir, false)?;
+   ```
+   Two corrections to the original plan:
+   - The hook belongs in `get_file_list`, not `validate_directory`. `get_file_list`
+     is the only command that hands image paths to the webview, and it is also on
+     the queue-edit restore path (`main.js`, `editQueueItem`), which never calls
+     `validate_directory`. Hooking validation alone would have broken previews for
+     queued jobs.
+   - The directory must be canonicalized first. `Scope::is_allowed` canonicalizes
+     the requested path but `allow_directory` stores its argument verbatim, so an
+     uncanonicalized `/tmp/frames` would never match a request for
+     `/private/tmp/frames`.
+   - `recursive` is `false`, not `true`: the listing is non-recursive, so the grant
+     covers exactly the files the user can actually preview.
+
+2. **`script-src`.** Now `'self'`, with `'unsafe-inline'` and the unused
+   `'wasm-unsafe-eval'` both removed (nothing in the frontend uses WebAssembly).
+   The one inline `onerror` handler, in the `previewImage` template in `main.js`,
+   is now an `addEventListener('error', ...)`. Worth noting for future reference:
+   Tauri only injects a CSP nonce when the HTML contains inline scripts or the
+   nonce token, and `index.html` has neither, so `'unsafe-inline'` really was
+   live rather than being neutered by a nonce.
+
+3. **devtools: the original recommendation was wrong.** `"devtools": false` would
+   have bought nothing and cost dev ergonomics. Every devtools path in
+   `tauri-runtime-wry` is gated on `#[cfg(any(debug_assertions, feature = "devtools"))]`,
+   the `devtools` Cargo feature is not enabled in this project, and `tauri build`
+   compiles with `debug_assertions` off. Verified empirically: `nm` finds 52
+   devtools symbols in the debug binary and **zero** in the release binary. Setting
+   the flag to `false` would have disabled DevTools in `tauri dev` while changing
+   nothing about release builds. The redundant `"devtools": true` line was simply
+   deleted, which leaves the (already correct) default behavior in place.
+
+4. **`tauri-plugin-fs` removed** from `Cargo.toml` and from the builder. The
+   frontend only uses the `core`, `dialog`, `event` and `window` namespaces, and
+   the plugin had no permissions granted in `capabilities/default.json` anyway.
+   It remains in `Cargo.lock` as a transitive dependency of `tauri-plugin-dialog`,
+   which cannot be avoided, but its commands are no longer registered.
+
+Verified in a release build: the app launches and renders, the About, Preferences
+and Queue dialogs all open, directory validation and format detection work, and
+image previews (including the maximized overlay) render from a directory outside
+any static scope, which they could not do if the runtime grant were not working.
 
 ### Acceptance criteria
 
@@ -148,7 +209,7 @@ This design has four defects:
    `SIGTERM` (or `taskkill /F`) to an unrelated process. Unlikely, but the failure
    mode (killing a random user process) is severe.
 2. **No already-running guard.** A second `start_stacking` call overwrites the
-   global slot, making the first job uncancellable — and the first job's
+   global slot, making the first job uncancellable. The first job's
    completion handler then clears the *second* job's PID. The frontend currently
    prevents double-starts via the disabled button, but the Rust layer should not
    rely on UI discipline.
@@ -174,11 +235,11 @@ each spawn a Python subprocess and block on `.output()`:
 
 In development mode each call pays full Python interpreter + imgstax import
 startup (hundreds of milliseconds; worse on Windows), during which the **entire
-UI freezes** — no repaints, no input. In production (bundled PyInstaller binary)
+UI freezes**, with no repaints or input. In production (bundled PyInstaller binary)
 it's faster but still a synchronous process launch on the UI thread.
 
 `list_postproc_recipes` (line ~416) already does this correctly with
-`tauri::async_runtime::spawn_blocking` — the fix is to make the others match.
+`tauri::async_runtime::spawn_blocking`. Update the others to match.
 
 Additionally, `start_stacking` and `execute_postproc` are `async fn` but perform
 fully blocking work (spawn → read lines → wait) directly in the function body,
@@ -194,7 +255,7 @@ work on blocking threads.**
    ```rust
    static STACKING_PROCESS: Mutex<Option<std::process::Child>> = Mutex::new(None);
    ```
-   (With rust-version 1.77, `Mutex::new` is const — the `once_cell::Lazy` and the
+   (With rust-version 1.77, `Mutex::new` is const, so the `once_cell::Lazy` and the
    `Arc` wrapper can both be dropped, and the `once_cell` dependency removed.)
 
 2. **Guard against double-start.** At the top of `start_stacking`:
@@ -210,7 +271,7 @@ work on blocking threads.**
 3. **Cancel via the handle.** `cancel_stacking` becomes:
    ```rust
    if let Some(child) = slot.as_mut() {
-       child.kill().map_err(...)?;   // no PID reuse possible — kills *this* child
+       child.kill().map_err(...)?;   // Kills this child without PID reuse
    }
    ```
    If graceful shutdown matters (letting Python finish writing the current frame),
@@ -220,7 +281,7 @@ work on blocking threads.**
    Windows, `Child::kill()` (TerminateProcess) is the standard approach.
 
 4. **Make cleanup unconditional.** Wrap the read-loop body so that *every* exit
-   path — success, read error, JSON parse problem — reaches `child.wait()` and
+   path (success, read error, or JSON parse problem) reaches `child.wait()` and
    clears the slot. The simplest shape: move the loop into a closure/function,
    capture its `Result`, then do `let status = child.wait(); *slot = None;`
    before propagating the result. (A small scope-guard struct also works.)
@@ -256,7 +317,7 @@ work on blocking threads.**
 
 6. **While in the area** (small, related cleanups):
    - `start_stacking` re-derives the binary path instead of calling
-     `get_imgstax_cmd()` — replace ~20 duplicated lines with one call.
+     `get_imgstax_cmd()`. Replace ~20 duplicated lines with one call.
    - Log non-JSON stdout lines in the stacking loop instead of silently
      discarding them (Python warnings currently vanish).
    - `list_user_recipes` aborts entirely if any one YAML file is corrupt (`?` on
@@ -267,10 +328,79 @@ work on blocking threads.**
 
 | Step | Scope | Risk |
 |---|---|---|
-| Helper + convert 5 JSON commands to `spawn_blocking` | ~80 lines net deletion | Low — behavior identical, just off-thread |
-| `Child`-based slot + double-start guard + handle-based cancel | `start_stacking`, `cancel_stacking` | Medium — test cancel on macOS **and** Windows |
+| Helper + convert 5 JSON commands to `spawn_blocking` | ~80 lines net deletion | Low; same behavior on a blocking thread |
+| `Child`-based slot + double-start guard + handle-based cancel | `start_stacking`, `cancel_stacking` | Medium; test cancel on macOS **and** Windows |
 | Unconditional cleanup on all exit paths | stdout loops in 2 commands | Low |
 | Drop `once_cell`, misc cleanups | Cargo.toml + small diffs | Trivial |
+
+### Resolution (September 2026)
+
+Implemented as recommended, with one refinement and one caveat.
+
+- `STACKING_PROCESS` is now `static Mutex<Option<Child>>` (const `Mutex::new`);
+  `once_cell` and the `Arc` wrapper are gone, and `once_cell` was dropped from
+  `Cargo.toml`.
+- `start_stacking` takes the lock **before** spawning and refuses a second job,
+  so a rejected start never leaves a stray process behind.
+- `cancel_stacking` signals the held handle while still holding the lock, so the
+  PID cannot have been recycled. On Unix it sends `SIGTERM` via `libc` (preserving
+  the previous signal, and leaving room for a future handler in the Python side),
+  falling back to `Child::kill()` if that fails; elsewhere it calls `Child::kill()`
+  directly. It deliberately leaves the slot populated: `start_stacking` owns the
+  reaping, so clearing it here would leak a zombie.
+- Both streaming read loops record a read error and `break` instead of `?`-ing out,
+  so `child.wait()` and the slot clear are reached on every exit path.
+- The five one-shot commands now share a `run_imgstax` / `run_imgstax_json` helper
+  and all run under `spawn_blocking`. The doc's single JSON helper would not have
+  covered `save_postproc_recipe` (returns a path) or `delete_postproc_recipe`
+  (returns a bool), so the helper returns raw stdout with a thin JSON wrapper on
+  top. `start_stacking` and `execute_postproc` are now thin `async` shells around
+  blocking worker functions.
+- `start_stacking` uses `get_imgstax_cmd()` instead of re-deriving the binary path;
+  the now-unused `has_bundled_binary` was removed. Non-JSON stdout lines are logged
+  rather than discarded. `list_user_recipes` skips and warns on a bad YAML file.
+
+Two things the runtime test turned up that the original analysis missed:
+
+- **The stacking child is not a leaf process.** The bundled binary is a
+  PyInstaller one-file build, so the process we spawn is the bootloader and it
+  re-execs the real interpreter as a child of its own. On Unix this does not
+  matter (the bootloader forwards `SIGTERM`, verified: no survivors), but on
+  Windows a plain `Child::kill()` is `TerminateProcess` against the bootloader
+  alone and would have stranded the interpreter. The doc's recommendation to
+  replace `taskkill /T` with `Child::kill()` would therefore have been a silent
+  regression on Windows. `cancel_stacking` now keeps `taskkill /PID <id> /T /F`
+  on Windows, taking the PID from the handle it owns while still holding the
+  lock, which preserves both the tree kill and the PID-reuse protection, with
+  `Child::kill()` as the fallback.
+- **A separate zombie leak, unrelated to stacking.** `open_folder`,
+  `play_notification_sound` and `speak_notification` all called
+  `Command::spawn()` and never `wait()`, so every successful stack leaked one
+  defunct `afplay` (or `say`) process for the lifetime of the app. This was
+  pre-existing and is the same defect class as 2a.3. All three now go through a
+  `spawn_and_reap` helper that hands the child to a detached thread to wait on.
+
+Caveat:
+
+- Error strings from the five converted commands are unified as
+  `"imgstax error: ..."`, replacing the previous mix of `"Python error: ..."`,
+  `"Failed to save recipe: ..."` and `"Failed to delete recipe: ..."`.
+
+### Verification (release build, macOS, v2.4.1)
+
+Driven against a 116-frame JPEG sequence:
+
+| Check | Result |
+|---|---|
+| Cancel mid-stack | Stops the run (3 and 109 of 116 frames on two attempts) |
+| Orphaned processes after cancel | None, including the PyInstaller grandchild |
+| Zombies after cancel | None |
+| New stack immediately after a cancel | Starts (proving the slot is cleared, since the double-start guard would otherwise reject it) |
+| Full run to completion | 116 frames, no `stacking_error.log` |
+| Zombies after a successful run | None, after the `spawn_and_reap` fix (one per run before it) |
+
+Still owed: **the same pass on Windows**, where the `taskkill` tree-kill path and
+the console-flag handling differ and cannot be exercised from macOS.
 
 ### Acceptance criteria
 
@@ -280,7 +410,9 @@ work on blocking threads.**
   shows no orphaned Python process and a new stack can start immediately.
 - Opening the post-process dropdown or recipe list in dev mode no longer freezes
   the window (visually verifiable: spinner/hover states keep animating).
-- `rg "once_cell" desktop-app/src-tauri` returns nothing.
+- `rg "once_cell" desktop-app/src-tauri/src desktop-app/src-tauri/Cargo.toml`
+  returns nothing. (`Cargo.lock` still lists it: several Tauri crates depend on
+  it transitively, so only the direct dependency can be removed.)
 
 ---
 
@@ -301,9 +433,9 @@ dist/js/
   main.js         (init, event wiring)
 ```
 
-Tauri's webview supports `<script type="module">` with no build step — the only
-constraints are converting cross-section function calls into imports and being
-careful with the handful of mutable globals (`inputDirPath`, `stackingQueue`,
+Tauri's webview supports `<script type="module">` with no build step. The split
+requires converting cross-section function calls into imports and handling
+the mutable globals (`inputDirPath`, `stackingQueue`,
 `regularStackingStartTime`), which should move into a small shared `state.js` or
 be passed explicitly. Best done *after* item 1's CSP work so the script tags only
 change once.

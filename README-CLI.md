@@ -520,7 +520,14 @@ imgstax is designed to build animations from stacked image sequences.
 
 ## Version History
 
-### v2.4.0 (Current)
+### v2.4.1 (Current)
+- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is now granted per directory at runtime instead of exposing the whole filesystem
+- **Subprocess lifecycle**: the stacking job is tracked by process handle rather than PID, so cancel can no longer signal a recycled PID; starting a second job now returns a clean error instead of orphaning the first
+- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
+- **Removed** the unused `tauri-plugin-fs` dependency
+- **Recipe listing** no longer fails outright when a single user recipe file is malformed
+
+### v2.4.0
 - **Post-Processing System**: Run shell commands (ffmpeg, etc.) after stacking completes
 - **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support
 - **Gradient Documentation**: Detailed guide on stacking mode selection for subject contrast
