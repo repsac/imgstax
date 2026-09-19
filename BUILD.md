@@ -11,26 +11,44 @@ This guide covers building the imgstax desktop application for distribution.
 
 ## Version Management
 
-Before building a release, update version numbers in these files:
+Before building a release, update version numbers in these files. All four must
+match, and all four need updating: there is no single source across the Rust,
+NPM, and Python halves of the project.
 
-1. **desktop-app/src-tauri/tauri.conf.json**: Main app version
+1. **desktop-app/src-tauri/tauri.conf.json**: bundle version (names the installer)
    ```json
    {
      "version": "2.4.1"
    }
    ```
 
-2. **desktop-app/package.json**: NPM package version
+2. **desktop-app/src-tauri/Cargo.toml**: crate version
+   ```toml
+   version = "2.4.1"
+   ```
+   This is the one the GUI displays. `get_app_version` returns
+   `CARGO_PKG_VERSION`, which feeds the header and the About dialog, so a stale
+   value here is visible to users even when everything else is correct.
+
+3. **desktop-app/package.json**: NPM package version
    ```json
    {
      "version": "2.4.1"
    }
    ```
 
-3. **imgstax/__init__.py**: Python package version (if changed)
+4. **imgstax/__init__.py**: Python package version
    ```python
    __version__ = "2.4.1"
    ```
+   `setup.py` parses this file rather than holding its own copy, so it does not
+   need a separate edit.
+
+Verify with:
+
+```bash
+grep -h '"version"' desktop-app/src-tauri/tauri.conf.json desktop-app/package.json && grep '^version' desktop-app/src-tauri/Cargo.toml && grep __version__ imgstax/__init__.py
+```
 
 **Version format**: Follow [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH)
 - MAJOR: Breaking changes

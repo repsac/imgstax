@@ -399,8 +399,33 @@ Driven against a 116-frame JPEG sequence:
 | Full run to completion | 116 frames, no `stacking_error.log` |
 | Zombies after a successful run | None, after the `spawn_and_reap` fix (one per run before it) |
 
-Still owed: **the same pass on Windows**, where the `taskkill` tree-kill path and
-the console-flag handling differ and cannot be exercised from macOS.
+### Still owed: the Windows pass
+
+Three code paths in `cancel_stacking` and the command helpers are compiled only on
+Windows and cannot be exercised from macOS. Run these against a release build
+(`npm run build` in `desktop-app/`, then install the MSI):
+
+1. **Cancel kills the whole tree.** Start a stack over a few hundred frames, cancel
+   it mid-run, then check Task Manager (or `tasklist /FI "IMAGENAME eq imgstax.exe"`)
+   for surviving `imgstax.exe` processes. There should be none. This is the path
+   that matters most: the sidecar is a PyInstaller one-file build, so the process
+   the app spawns is the bootloader and the interpreter is a *child of that*.
+   `cancel_stacking` uses `taskkill /PID <id> /T /F` to take down the tree, falling
+   back to `Child::kill()` only if taskkill fails. If the fallback is what runs, the
+   interpreter survives and keeps writing frames after the cancel.
+2. **No console windows flash.** Every subprocess goes through `configure_command`
+   or an explicit `creation_flags(0x08000000)` (`CREATE_NO_WINDOW`). Watch for a
+   black console window appearing during: app start (recipe and post-process
+   listing), a stack run, a cancel (the taskkill call itself), and the completion
+   notification sound. None should be visible.
+3. **A new stack starts cleanly after a cancel.** If the slot were left populated,
+   the double-start guard would reject it with "A stacking job is already running".
+
+Also worth confirming on Windows, since the fix is new: after a *successful* stack,
+no orphaned `powershell.exe` from the completion notification remains. These are
+now reaped by `spawn_and_reap`, but the Windows notification path shells out to
+PowerShell rather than `afplay`, so it is a different process shape from the one
+verified on macOS.
 
 ### Acceptance criteria
 
