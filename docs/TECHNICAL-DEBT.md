@@ -399,33 +399,60 @@ Driven against a 116-frame JPEG sequence:
 | Full run to completion | 116 frames, no `stacking_error.log` |
 | Zombies after a successful run | None, after the `spawn_and_reap` fix (one per run before it) |
 
-### Still owed: the Windows pass
+### The Windows pass (complete)
 
-Three code paths in `cancel_stacking` and the command helpers are compiled only on
-Windows and cannot be exercised from macOS. Run these against a release build
-(`npm run build` in `desktop-app/`, then install the MSI):
+Verified 19 September 2026 on Windows 11 Pro 25H2 (10.0.26200.9457, x64) against a
+release build of v2.4.1: sidecar rebuilt with `python build_binary.py`, app built
+with `npm run tauri build`, run from
+`desktop-app\src-tauri\target\release\imgstax-desktop.exe` with the bundled
+`imgstax.exe` beside it (so `get_imgstax_cmd` resolves to the sidecar, not Python).
+Driven against a 400-frame 1600x1200 JPEG sequence.
 
-1. **Cancel kills the whole tree.** Start a stack over a few hundred frames, cancel
-   it mid-run, then check Task Manager (or `tasklist /FI "IMAGENAME eq imgstax.exe"`)
-   for surviving `imgstax.exe` processes. There should be none. This is the path
-   that matters most: the sidecar is a PyInstaller one-file build, so the process
-   the app spawns is the bootloader and the interpreter is a *child of that*.
-   `cancel_stacking` uses `taskkill /PID <id> /T /F` to take down the tree, falling
-   back to `Child::kill()` only if taskkill fails. If the fallback is what runs, the
-   interpreter survives and keeps writing frames after the cancel.
-2. **No console windows flash.** Every subprocess goes through `configure_command`
-   or an explicit `creation_flags(0x08000000)` (`CREATE_NO_WINDOW`). Watch for a
-   black console window appearing during: app start (recipe and post-process
-   listing), a stack run, a cancel (the taskkill call itself), and the completion
-   notification sound. None should be visible.
-3. **A new stack starts cleanly after a cancel.** If the slot were left populated,
-   the double-start guard would reject it with "A stacking job is already running".
+The three-process shape the fix was written for is real on Windows and was observed
+on every run: `imgstax-desktop.exe` -> `imgstax.exe` (PyInstaller bootloader) ->
+`imgstax.exe` (interpreter).
 
-Also worth confirming on Windows, since the fix is new: after a *successful* stack,
-no orphaned `powershell.exe` from the completion notification remains. These are
-now reaped by `spawn_and_reap`, but the Windows notification path shells out to
-PowerShell rather than `afplay`, so it is a different process shape from the one
-verified on macOS.
+| Check | Result |
+|---|---|
+| Cancel kills the whole tree | Pass. Zero `imgstax.exe` at +5s and +13s after cancel; output stopped growing immediately |
+| No console windows flash | Pass. No visible console window at startup, during a run, during cancel, or on the notification |
+| New stack starts after a cancel | Pass. Fresh process tree spawned, no "A stacking job is already running" |
+| No orphaned `powershell.exe` after a successful run | Pass. Exactly one notification child spawned per run, and it exits on its own |
+
+Notes on how each was confirmed:
+
+1. **Tree kill.** The `taskkill /PID <id> /T /F` path is the one that ran, and it is
+   load-bearing. Tested directly against the sidecar outside the app: `taskkill /T /F`
+   on the bootloader reports terminating the bootloader *and* its children and leaves
+   no survivors, while `TerminateProcess` on the bootloader alone (what the
+   `Child::kill()` fallback does) leaves the interpreter orphaned. Since the in-app
+   cancel left zero survivors, taskkill succeeded and the fallback never ran.
+2. **Console windows.** Checked by enumerating visible top-level windows of the
+   console classes every 35-60ms across app startup, stacking, cancel and the
+   notification: none ever appeared. Note that the sidecar does get a `conhost.exe`
+   child; that is expected under `CREATE_NO_WINDOW` (a console object is allocated,
+   no window is shown) and is not a failure.
+3. **Restart after cancel.** Cancelling and immediately starting again spawns a new
+   process tree and writes frames, so the slot is cleared on the cancel path.
+4. **Notification.** The default `notificationSound` is empty, so a stock run never
+   reaches the PowerShell path. A sound was selected in Preferences first; after that
+   each completed run spawned one `powershell.exe` child of the app, which exited on
+   its own with none left behind.
+
+Two things found during the pass, neither of them a regression in the v2.4.1 work:
+
+- **`get_python_path()` misses `CREATE_NO_WINDOW`.** The discovery commands
+  (`where python`, `<candidate> --version`, `which python3`) build their `Command`
+  directly and never go through `configure_command`, so they would flash a console
+  on Windows. Unreachable in a bundled release build, where `get_imgstax_cmd()`
+  returns the sidecar before ever calling `get_python_path()`, but it will show in
+  dev mode. Cheap fix: route them through `configure_command`.
+- **Progress modal can stay hidden on a fast restart (frontend).** Starting a new
+  stack roughly a second after confirming a cancel leaves the progress modal hidden
+  while the job runs, so the run is invisible and uncancellable from the GUI; with a
+  few seconds' gap the modal appears normally. Reproduced twice. This is a race in
+  `main.js`, not in the Rust layer (which correctly accepted the new job), and is
+  not Windows-specific.
 
 ### Acceptance criteria
 
