@@ -18,9 +18,9 @@ settings:
   quality: 85
 
   # Process every 2nd frame for speed
-  step: 2
+  frame_interval: 2
 
 # Usage examples:
 #   python -m imgstax timelapse_images/ --recipe timelapse
 #   python -m imgstax timelapse_images/ --recipe timelapse -t 10  # More blur
-#   python -m imgstax timelapse_images/ --recipe timelapse --step 1  # All frames
+#   python -m imgstax timelapse_images/ --recipe timelapse --frame-interval 1  # All frames

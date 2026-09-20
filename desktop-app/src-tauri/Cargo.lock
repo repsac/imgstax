@@ -1547,17 +1547,16 @@ dependencies = [
 
 [[package]]
 name = "imgstax-desktop"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
+ "libc",
  "log",
- "once_cell",
  "serde",
  "serde_json",
  "serde_yaml",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
- "tauri-plugin-fs",
  "tauri-plugin-log",
  "tauri-plugin-shell",
 ]

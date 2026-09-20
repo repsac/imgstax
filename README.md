@@ -1,6 +1,6 @@
 # imgstax Desktop - Sequential Image Stacking for Animations
 
-Create stunning **animated progressions** from image sequences with an intuitive desktop interface. imgstax Desktop processes sequential frames (from timelapse or video) to generate frame-by-frame stacked outputs, perfect for star trail animations, time-lapse effects, and visualizing motion over time.
+imgstax Desktop stacks image sequences frame by frame to create **animations**. Use frames from time-lapse photography or video to build star trails, light trails, and other motion effects.
 
 **What imgstax does:** Progressive stacking of sequential frames to create animations
 **What imgstax doesn't do:** Complex single-image stacking with calibration frames (use [StarStax](https://markus-enzweiler.de/software/starstax/), Photoshop, or Affinity Photo instead)
@@ -9,7 +9,7 @@ Create stunning **animated progressions** from image sequences with an intuitive
 
 ## Download
 
-### Latest Release (v2.3.0)
+### Latest Release (v2.4.1)
 
 - **macOS** (Apple Silicon): [Download DMG](https://github.com/repsac/imgstax/releases/latest)
 - **Windows** (x64): [Download MSI](https://github.com/repsac/imgstax/releases/latest)
@@ -22,7 +22,7 @@ Create stunning **animated progressions** from image sequences with an intuitive
 - **Windows**: Windows 10 (64-bit) or later
 - **Disk Space**: ~100 MB
 
-No Python installation required for pre-built applications!
+Pre-built apps do not require Python.
 
 ---
 
@@ -56,7 +56,7 @@ Create and manage custom recipes for your workflows:
 
 ### Batch Processing Queue
 
-Process multiple stacking jobs efficiently:
+Queue multiple stacking jobs:
 
 - Add jobs to queue without clearing your current settings
 - Reorder jobs with drag-and-drop or up/down buttons
@@ -75,7 +75,7 @@ Process multiple stacking jobs efficiently:
 
 ### Post-Processing
 
-Automatically run a shell command after stacking completes — great for generating a video from your stacked frames:
+Run a shell command after stacking, such as creating a video from your stacked frames:
 
 - Select a post-process from the **Post-Process** dropdown (above the Stack button)
 - Runs automatically after stacking or after each job in a batch queue
@@ -88,7 +88,7 @@ Automatically run a shell command after stacking completes — great for generat
 
 - **Trail Gradient**: Comet tail effect with progressive fade
 - **Trail Length**: Sliding window for moving effects
-- **Fade Out**: Graceful trail termination
+- **Fade Out**: Gradually fade trails at the end
 - **Frame Selection**: Start, end, and interval controls
 - **Format Options**: JPEG quality, PNG compression, TIFF compression
 - **Dry Run**: Test settings without creating files
@@ -174,7 +174,7 @@ Choose a post-processing command to run automatically after stacking:
 | **fireworks** | maximum | 10 | No | Firework composites |
 | **noise-reduction** | mean | 0 | No | Noise reduction averaging |
 
-> **Gradient tip — stacking mode matters:** The comet tail effect depends on the contrast between your subject and its background.
+> **Gradient tip: choose the right stacking mode.** The comet tail effect depends on the contrast between your subject and its background.
 > - **Bright subjects on dark backgrounds** (stars, fireworks): use **maximum** stacking. Bright pixels stay visible against the dark background even after fading.
 > - **Dark subjects on bright backgrounds** (birds, aircraft): use **minimum** stacking. With maximum stacking, dark subject pixels are immediately overwhelmed by the bright background and the trail disappears within 1–2 frames.
 >
@@ -205,7 +205,7 @@ Your custom recipes appear in the dropdown with "(User)" suffix.
 
 ### Recipe Storage
 
-User recipes are stored in OS-appropriate locations:
+User recipes are stored here:
 - **macOS**: `~/Library/Application Support/imgstax-desktop/user_recipes/`
 - **Windows**: `%APPDATA%/imgstax-desktop/user_recipes/`
 - **Linux**: `~/.config/imgstax-desktop/user_recipes/`
@@ -216,7 +216,7 @@ Recipes are YAML files compatible with the [CLI version](README-CLI.md).
 
 ## Batch Processing Workflow
 
-The queue system enables efficient batch processing:
+Use the queue to run several jobs in order:
 
 ### Adding Jobs to Queue
 
@@ -246,7 +246,7 @@ The queue system enables efficient batch processing:
 
 ## Post-Processing
 
-After stacking completes, imgstax can automatically run a shell command in the output directory — the most common use is generating a video from the stacked image sequence.
+After stacking, imgstax can run a shell command in the output directory. Use this to turn the stacked frames into a video, for example.
 
 ### Built-in Post-Processing Recipes
 
@@ -278,7 +278,7 @@ ffmpeg -f concat -safe 0 -i <(ls -1 *.jpg | sort | sed 's/^/file /') -r 24 -c:v 
 convert -delay 5 -loop 0 *.jpg animation.gif
 ```
 
-> **Tip:** The command runs with the working directory set to your output folder. Existing files will not be overwritten automatically — delete or rename `output.mp4` before re-running to avoid errors.
+> **Tip:** The command runs with the working directory set to your output folder. Existing files will not be overwritten automatically. Delete or rename `output.mp4` before running the command again.
 
 ### Linking a Post-Process to a Recipe
 
@@ -288,10 +288,10 @@ In the **Recipe Editor**, use the **Post-Process** field to automatically select
 
 If a post-process fails, two log files are saved in the output directory:
 
-- `postproc.log` — Python-side log: command, subprocess output, return code
-- `postproc_rust.log` — Rust-side log: what the backend received and returned
+- `postproc.log`: Python log with the command, subprocess output, and return code
+- `postproc_rust.log`: Rust log showing what the backend received and returned
 
-Logs are automatically deleted on success to keep the output directory clean.
+Logs are deleted when the command succeeds.
 
 ---
 
@@ -360,7 +360,7 @@ All images in a sequence must have the same dimensions.
 
 ## Command-Line Interface
 
-Power users can access the full CLI:
+You can also run imgstax from the command line:
 
 ```bash
 imgstax /path/to/images -o output -s maximum -t 30 -g
@@ -456,7 +456,7 @@ If macOS shows _"imgstax.app is damaged and can't be opened. You should move it 
 
 **Post-processing fails or shows an error**
 - Check `postproc.log` in the output directory for the full error
-- Most common cause: output file already exists (e.g. `output.mp4`) — delete it and retry
+- If the output file already exists (e.g. `output.mp4`), delete or rename it and retry
 - Ensure the required tool (e.g. `ffmpeg`) is installed and on your PATH
 - On Windows, commands use PowerShell syntax; on macOS/Linux, bash syntax
 
@@ -464,7 +464,7 @@ If macOS shows _"imgstax.app is damaged and can't be opened. You should move it 
 
 ## Use Cases
 
-### Perfect for imgstax Desktop
+### Common Uses
 
 - ✅ Star trail **animations** (progressive stacking over time)
 - ✅ Traffic light trail **sequences**
@@ -479,13 +479,27 @@ If macOS shows _"imgstax.app is damaged and can't be opened. You should move it 
 - ❌ **Deep sky astrophotography** with dark/flat/bias frames → Use DeepSkyStacker or PixInsight
 - ❌ **Video editing** or effects → Use DaVinci Resolve, Premiere, or Final Cut Pro
 
-imgstax focuses on **progressive sequential stacking for animations**, not single-image perfection.
+imgstax is designed to build animations from stacked image sequences.
 
 ---
 
 ## Version History
 
-### v2.3.0 (Current)
+### v2.4.1 (Current)
+- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is now granted per directory at runtime instead of exposing the whole filesystem
+- **Subprocess lifecycle**: the stacking job is tracked by process handle rather than PID, so cancel can no longer signal a recycled PID; starting a second job now returns a clean error instead of orphaning the first
+- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
+- **Removed** the unused `tauri-plugin-fs` dependency
+- **Recipe listing** no longer fails outright when a single user recipe file is malformed
+
+### v2.4.0
+- **Completion Notification Sound**: System sound or TTS alert when stacking finishes (macOS/Windows)
+- **About Dialog**: Version, author, license, and GitHub link
+- **Window Size Constraints**: Max width/height prevent excessive whitespace
+- **Stacking Error Logging**: Error details surfaced in progress dialog; `stacking_error.log` written on failure
+- **Bug Fixes**: Reset clears file list/preview (#24, #25), output dir clears on input change, Windows notification terminal flash fixed (#28)
+
+### v2.3.0
 - **Post-Processing System**: Run shell commands (ffmpeg, ImageMagick, etc.) after stacking
 - **Post-Processing Recipes**: Create and manage OS-specific post-process commands
 - **Expanded Image Format Support**: Added WebP, TGA, BMP, Netpbm support
@@ -515,7 +529,7 @@ imgstax focuses on **progressive sequential stacking for animations**, not singl
 
 ## Contributing
 
-Contributions welcome! Areas for development:
+Contributions are welcome in these areas:
 
 **In Scope:**
 - Additional stacking algorithms
@@ -556,7 +570,7 @@ Ed Caspersen
 
 ## Acknowledgments
 
-- **Tauri**: For the amazing desktop app framework
+- **Tauri**: Desktop app framework
 - **NumPy**: Array operations and stacking algorithms
 - **Pillow**: Image processing
 - **PyYAML**: Recipe system
@@ -566,7 +580,7 @@ Ed Caspersen
 
 ## Support & Donations
 
-While I appreciate the thought of direct donations, I'd much rather see support go to these wonderful animal rescue organizations:
+If you'd like to support imgstax, please consider donating to one of these animal rescue organizations:
 
 - **[Funky Chicken Rescue](https://funkychickenrescue.com/donate)** - Rescuing and rehabilitating chickens and other farm birds
 - **[LTWC Wildlife Center](https://ltwc.org/donate)** - Wildlife rehabilitation and conservation
@@ -574,4 +588,4 @@ While I appreciate the thought of direct donations, I'd much rather see support 
 - **[H Branch Donkey Rescue](https://www.hbranchdonkeyrescue.com)** - Sanctuary for rescued donkeys
 - **[Rancho Burro Donkey Sanctuary](https://ranchoburrodonkeysanctuary.org)** - Safe haven for abandoned and neglected donkeys
 
-These organizations do incredible work helping animals in need. If imgstax has been useful to you, please consider supporting them.
+Thank you for helping animals in need.

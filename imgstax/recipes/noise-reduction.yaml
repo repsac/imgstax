@@ -17,9 +17,6 @@ settings:
   # High quality for clean output
   quality: 95
 
-  # Process all frames for best noise reduction
-  step: 1
-
 # Tips:
 #   - Best with static scenes
 #   - More frames = better noise reduction

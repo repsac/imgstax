@@ -1,6 +1,6 @@
 # imgstax Desktop App
 
-A native desktop application for imgstax image stacking tool, built with Tauri.
+The desktop interface for imgstax, built with Tauri.
 
 ## Quick Start
 
@@ -53,7 +53,7 @@ npm run dev
 - 🎯 **Native file picker** - Browse for directories with system dialog
 - 🖼️ **File browser** - Preview images and right-click to set frame ranges
 - 🖥️ **Desktop app** - No browser or web server needed
-- 🎨 **Clean interface** - Same beautiful UI as web version
+- 🎨 **Interface** - Same UI as the web version
 - 📊 **Batch processing** - Queue multiple jobs with progress tracking
 - ⚙️ **All features** - Trail length, gradient, fade-out, quality control
 - 🍎 **Native** - Distributable as .dmg (macOS), .exe (Windows), .AppImage (Linux)
@@ -89,8 +89,8 @@ npm run dev
 npm run build
 
 # Build output locations:
-# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.3.0_x64.dmg
-# Windows: src-tauri/target/release/bundle/msi/imgstax_2.3.0_x64_en-US.msi
+# macOS:   src-tauri/target/release/bundle/dmg/imgstax_2.4.0_x64.dmg
+# Windows: src-tauri/target/release/bundle/msi/imgstax_2.4.0_x64_en-US.msi
 # Linux:   src-tauri/target/release/bundle/appimage/imgstax.AppImage
 ```
 
@@ -121,7 +121,7 @@ This creates:
 - **Windows**: `.msi` installer (includes WebView2 runtime)
 - **Linux**: `.AppImage` and `.deb` package
 
-The built app includes everything needed - no Python or dependencies required for end users.
+The built app bundles Python and its dependencies.
 
 ## Troubleshooting
 

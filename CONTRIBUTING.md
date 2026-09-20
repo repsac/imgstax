@@ -1,6 +1,6 @@
 # Contributing to imgstax
 
-Thank you for your interest in contributing to imgstax!
+Thanks for contributing to imgstax.
 
 ## Development Setup
 
@@ -51,7 +51,7 @@ The app will automatically:
    - `/usr/bin/python3` (system Python)
 3. Look for `python3` in your PATH as last resort
 
-If Python can't be found, you'll see a helpful error message with solutions.
+If the app can't find Python, the error message lists ways to fix it.
 
 **Note:** Explicit path checking happens before PATH lookup because subprocess environments may not have the same PATH as your shell, and user-installed Python (pyenv, Homebrew) is more likely to have imgstax and its dependencies installed.
 
@@ -103,11 +103,11 @@ npm run tauri dev
 ## Pull Requests
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feature/your-feature`)
 3. Make your changes
 4. Test thoroughly
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to your branch (`git push origin feature/amazing-feature`)
+5. Commit your changes (`git commit -m 'Describe your change'`)
+6. Push to your branch (`git push origin feature/your-feature`)
 7. Open a Pull Request
 
 ## Code Style
