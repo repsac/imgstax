@@ -1177,6 +1177,17 @@ async function startBatchProcessing() {
 
 // Initialize
 async function init() {
+    // The webview brings its own context menu (reload, save as, print), none of
+    // which means anything in this app. Suppress it, except in editable text
+    // fields where cut/copy/paste is still worth having. The file list attaches
+    // its own menu on top of this in renderFileList().
+    document.addEventListener('contextmenu', (event) => {
+        const el = event.target instanceof Element ? event.target : null;
+        if (!el || !el.closest('input:not([readonly]), textarea, [contenteditable="true"]')) {
+            event.preventDefault();
+        }
+    });
+
     // Try to restore saved window position first
     const restored = await restoreWindowPosition();
 
