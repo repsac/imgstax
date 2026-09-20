@@ -486,11 +486,35 @@ imgstax is designed to build animations from stacked image sequences.
 ## Version History
 
 ### v2.4.1 (Current)
-- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is now granted per directory at runtime instead of exposing the whole filesystem
-- **Subprocess lifecycle**: the stacking job is tracked by process handle rather than PID, so cancel can no longer signal a recycled PID; starting a second job now returns a clean error instead of orphaning the first
-- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
+
+**Stacking correctness**
+- **Accurate composites**: non-trail stacking now builds results incrementally instead of re-stacking the previous output file. `mean`, `summation`, `variance`, `stddev` and `median` produced wrong results before; only `maximum` and `minimum` were correct. Also ends the JPEG quality loss from re-encoding intermediate frames
+- **Image loading normalized**: EXIF orientation applied, 16/32-bit scaled to 8-bit instead of wrapping, palette/RGBA/CMYK converted to a common mode
+- **Values clamped** before 8-bit conversion, so sum-style stacking saturates instead of wrapping to black
+
+**Security**
+- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is granted per directory at runtime, only for folders you open, instead of exposing the whole filesystem
 - **Removed** the unused `tauri-plugin-fs` dependency
+- Fixed a PowerShell quoting flaw in the Windows notification path
+- User-supplied text (imported recipe names, subprocess errors) is escaped before display
+
+**Cancelling and background work**
+- **Reliable cancel**: the stacking job is tracked by process handle rather than PID, so a late cancel can no longer signal an unrelated process, and the whole process tree is terminated with nothing left running
+- Starting a second stack while one is running is refused cleanly instead of orphaning the first
+- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
+- Fixed a leak where every completed stack left a stray background process behind
+
+**Interface**
+- Fixed the progress dialog vanishing when a new stack was started right after cancelling one, which left the job running invisibly with no way to stop it
+- Right-click no longer shows the browser's own menu (reload, save as, print); text fields keep normal cut/copy/paste
+- Recipe features work again in packaged builds (the YAML library is bundled rather than fetched)
+- Recipe names containing quotes or colons no longer corrupt the file on save
+- Zero is accepted as a real value for gradient plateau, PNG compression and gradient decay instead of falling back to the default
+- Selecting a recipe resets fields it does not define, so settings no longer leak between recipes
 - **Recipe listing** no longer fails outright when a single user recipe file is malformed
+- Exported `recipe.yaml` now actually applies when loaded back
+- Fixes to ESC key conflicts, stale time estimates, window restore at screen edges, and the file list not clearing between sequences
+- No console windows flash on Windows
 
 ### v2.4.0
 - **Completion Notification Sound**: System sound or TTS alert when stacking finishes (macOS/Windows)
