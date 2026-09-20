@@ -34,6 +34,8 @@ fn configure_command(command: &mut Command) {
 /// helpers (sound, speech, folder opening) are not awaited by the caller, so the
 /// wait has to happen somewhere, and a detached thread is the cheapest place.
 fn spawn_and_reap(command: &mut Command, context: &str) -> Result<(), String> {
+    configure_command(command);
+
     let mut child = command
         .spawn()
         .map_err(|e| format!("{}: {}", context, e))?;
@@ -140,7 +142,10 @@ fn get_python_path() -> Result<String, String> {
         }
 
         // Try to find python in PATH using 'where' on Windows
-        if let Ok(output) = Command::new("where").arg("python").output() {
+        let mut where_cmd = Command::new("where");
+        where_cmd.arg("python");
+        configure_command(&mut where_cmd);
+        if let Ok(output) = where_cmd.output() {
             if output.status.success() {
                 if let Ok(stdout) = String::from_utf8(output.stdout) {
                     // where can return multiple paths, filter out Microsoft Store stub
@@ -158,7 +163,10 @@ fn get_python_path() -> Result<String, String> {
                         // Verify this is actually an executable we can run
                         if Path::new(path).exists() {
                             // Test if it works by trying to get version
-                            if let Ok(test) = Command::new(path).arg("--version").output() {
+                            let mut probe = Command::new(path);
+                            probe.arg("--version");
+                            configure_command(&mut probe);
+                            if let Ok(test) = probe.output() {
                                 if test.status.success() {
                                     return Ok(path.to_string());
                                 }
@@ -189,7 +197,10 @@ fn get_python_path() -> Result<String, String> {
         }
 
         // Try to find python3 in PATH as last resort
-        if let Ok(output) = Command::new("which").arg("python3").output() {
+        let mut which_cmd = Command::new("which");
+        which_cmd.arg("python3");
+        configure_command(&mut which_cmd);
+        if let Ok(output) = which_cmd.output() {
             if output.status.success() {
                 if let Ok(path) = String::from_utf8(output.stdout) {
                     let path = path.trim().to_string();

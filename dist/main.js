@@ -63,6 +63,31 @@ const browseOutputBtn = document.getElementById('browseOutput');
 const startButton = document.getElementById('startButton');
 const inputValidationEl = document.getElementById('inputValidation');
 const progressDialog = document.getElementById('progressDialog');
+
+// Pending "hide the progress dialog" timer, if any. The cancel and error paths
+// leave the dialog up briefly so the user can read the final message, then hide
+// it on a timer. That timer has to be cancellable: starting a new stack inside
+// the delay window would otherwise let the stale timer hide the NEW run's
+// dialog, leaving the job running invisibly with no way to cancel it.
+let progressHideTimer = null;
+
+function clearProgressHideTimer() {
+    if (progressHideTimer !== null) {
+        clearTimeout(progressHideTimer);
+        progressHideTimer = null;
+    }
+}
+
+function hideProgressDialogAfter(delayMs) {
+    clearProgressHideTimer();
+    progressHideTimer = setTimeout(() => {
+        progressHideTimer = null;
+        overlay.style.display = 'none';
+        progressDialog.style.display = 'none';
+        startButton.disabled = false;
+    }, delayMs);
+}
+
 const progressTitle = document.getElementById('progressTitle');
 const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
@@ -812,7 +837,8 @@ async function executeStackingJob(config) {
         let startTime = null;
 
         try {
-            // Show progress dialog
+            // Show progress dialog. Drop any pending hide from a previous run first.
+            clearProgressHideTimer();
             overlay.style.display = 'block';
             progressDialog.style.display = 'block';
             progressFill.style.width = '0%';
@@ -1265,6 +1291,7 @@ async function init() {
     openOutputButton.addEventListener('click', openOutputFolder);
     cancelStackingButton.addEventListener('click', cancelStacking);
     closeProgressButton.addEventListener('click', () => {
+        clearProgressHideTimer();
         overlay.style.display = 'none';
         progressDialog.style.display = 'none';
         startButton.disabled = false;
@@ -2192,7 +2219,8 @@ async function startStacking() {
         export_recipe: document.getElementById('exportRecipeWithImages').checked
     };
 
-    // Show progress dialog
+    // Show progress dialog. Drop any pending hide from a previous run first.
+    clearProgressHideTimer();
     overlay.style.display = 'block';
     progressDialog.style.display = 'block';
     progressTitle.textContent = 'Stacking Images';
@@ -2231,21 +2259,13 @@ async function startStacking() {
         } else {
             progressText.textContent = `Error: ${result.error}`;
             cancelStackingButton.style.display = 'none';
-            setTimeout(() => {
-                overlay.style.display = 'none';
-                progressDialog.style.display = 'none';
-                startButton.disabled = false;
-            }, 3000);
+            hideProgressDialogAfter(3000);
         }
     } catch (error) {
         console.error('Stacking error:', error);
         progressText.textContent = `Error: ${error}`;
         cancelStackingButton.style.display = 'none';
-        setTimeout(() => {
-            overlay.style.display = 'none';
-            progressDialog.style.display = 'none';
-            startButton.disabled = false;
-        }, 3000);
+        hideProgressDialogAfter(3000);
     }
 }
 
@@ -2278,12 +2298,8 @@ async function cancelStacking() {
         progressText.textContent = 'Stacking cancelled';
         cancelStackingButton.style.display = 'none';
 
-        // Close dialog after a brief delay
-        setTimeout(() => {
-            overlay.style.display = 'none';
-            progressDialog.style.display = 'none';
-            startButton.disabled = false;
-        }, 1500);
+        // Close dialog after a brief delay, cancellably.
+        hideProgressDialogAfter(1500);
     } catch (error) {
         console.error('Error cancelling stacking:', error);
         progressText.textContent = `Failed to cancel: ${error}`;
