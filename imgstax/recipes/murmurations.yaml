@@ -21,9 +21,6 @@ settings:
   # High quality for detail
   quality: 90
 
-  # Process all frames
-  step: 1
-
 # Tips:
 #   - Works well with video extracted as image sequences
 #   - Adjust trail_length based on bird speed (faster = shorter trail)
@@ -32,4 +29,4 @@ settings:
 # Usage examples:
 #   python -m imgstax bird_images/ --recipe murmurations
 #   python -m imgstax bird_images/ --recipe murmurations -t 20  # Longer trails
-#   python -m imgstax bird_images/ --recipe murmurations --step 2  # Skip frames
+#   python -m imgstax bird_images/ --recipe murmurations --frame-interval 2  # Skip frames

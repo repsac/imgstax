@@ -17,9 +17,6 @@ settings:
   # High quality for vibrant colors
   quality: 95
 
-  # Process all frames to catch every burst
-  step: 1
-
 # Tips:
 #   - Use tripod for alignment
 #   - Adjust trail_length for burst size/duration

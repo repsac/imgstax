@@ -8,7 +8,7 @@ Commonly used for astrophotography, time-lapse processing, and artistic effects.
 import sys
 import logging
 
-__version__ = '2.0.0'
+__version__ = '2.4.1'
 __author__ = 'Ed Caspersen'
 
 # Set up logging

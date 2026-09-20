@@ -1,18 +1,89 @@
 use serde::{Deserialize, Serialize};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use tauri::{Emitter, Manager, Window};
 
 // Windows-specific imports for hiding console window
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-// Global storage for the stacking process handle
-static STACKING_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<u32>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+/// The running stacking child process, if any.
+///
+/// The `Child` itself is held here rather than its PID: the OS cannot recycle a
+/// PID while we still own the handle, so `cancel_stacking` can never signal an
+/// unrelated process. `start_stacking` takes the child back out of this slot to
+/// reap it, which also serves as the "no job running" signal for a later cancel.
+static STACKING_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
+
+/// Apply the flags every imgstax subprocess needs, regardless of platform.
+fn configure_command(command: &mut Command) {
+    // On Windows, prevent a console window from flashing up.
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
+/// Spawn a fire-and-forget child and reap it on a detached thread.
+///
+/// `Command::spawn` alone leaves a zombie behind: nothing ever calls `wait`, so
+/// the kernel keeps the exit status around for a parent that never asks. These
+/// helpers (sound, speech, folder opening) are not awaited by the caller, so the
+/// wait has to happen somewhere, and a detached thread is the cheapest place.
+fn spawn_and_reap(command: &mut Command, context: &str) -> Result<(), String> {
+    configure_command(command);
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("{}: {}", context, e))?;
+
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(())
+}
+
+/// Run imgstax to completion with the given extra arguments and return stdout.
+///
+/// Blocking: call from a blocking thread, never directly from a command body.
+fn run_imgstax_blocking(extra_args: Vec<String>) -> Result<String, String> {
+    let (cmd, mut args) = get_imgstax_cmd()?;
+    args.extend(extra_args);
+
+    let mut command = Command::new(&cmd);
+    command.args(&args);
+    configure_command(&mut command);
+
+    let output = command
+        .output()
+        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("imgstax error: {}", stderr.trim()));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Run imgstax off the UI thread and return its stdout.
+async fn run_imgstax(extra_args: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || run_imgstax_blocking(extra_args))
+        .await
+        .map_err(|e| format!("imgstax task failed: {}", e))?
+}
+
+/// Run imgstax off the UI thread and parse its stdout as JSON.
+async fn run_imgstax_json<T: serde::de::DeserializeOwned>(
+    extra_args: Vec<String>,
+) -> Result<T, String> {
+    let stdout = run_imgstax(extra_args).await?;
+    serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse imgstax output: {}", e))
+}
 
 /// Validate recipe ID to prevent path traversal attacks.
 /// Recipe IDs must not contain path separators or parent directory references.
@@ -37,11 +108,11 @@ fn validate_recipe_id(recipe_id: &str) -> Result<(), String> {
 /// Get the Python interpreter path.
 /// Searches for Python in multiple locations with priority order.
 /// In production, this won't be used as we'll have the bundled binary.
-fn get_python_path() -> String {
+fn get_python_path() -> Result<String, String> {
     // 1. Check environment variable (explicit override)
     if let Ok(path) = std::env::var("IMGSTAX_PYTHON_PATH") {
         if Path::new(&path).exists() {
-            return path;
+            return Ok(path);
         } else {
             eprintln!("Warning: IMGSTAX_PYTHON_PATH is set but path doesn't exist: {}", path);
         }
@@ -66,12 +137,15 @@ fn get_python_path() -> String {
 
         for path in &common_paths {
             if Path::new(path).exists() {
-                return path.clone();
+                return Ok(path.clone());
             }
         }
 
         // Try to find python in PATH using 'where' on Windows
-        if let Ok(output) = Command::new("where").arg("python").output() {
+        let mut where_cmd = Command::new("where");
+        where_cmd.arg("python");
+        configure_command(&mut where_cmd);
+        if let Ok(output) = where_cmd.output() {
             if output.status.success() {
                 if let Ok(stdout) = String::from_utf8(output.stdout) {
                     // where can return multiple paths, filter out Microsoft Store stub
@@ -89,9 +163,12 @@ fn get_python_path() -> String {
                         // Verify this is actually an executable we can run
                         if Path::new(path).exists() {
                             // Test if it works by trying to get version
-                            if let Ok(test) = Command::new(path).arg("--version").output() {
+                            let mut probe = Command::new(path);
+                            probe.arg("--version");
+                            configure_command(&mut probe);
+                            if let Ok(test) = probe.output() {
                                 if test.status.success() {
-                                    return path.to_string();
+                                    return Ok(path.to_string());
                                 }
                             }
                         }
@@ -102,7 +179,7 @@ fn get_python_path() -> String {
 
         // Last resort: try "python" directly and hope the system resolves it correctly
         // This will fail at runtime if Python isn't properly installed
-        return "python".to_string();
+        return Ok("python".to_string());
     } else {
         // Unix-style paths (macOS/Linux)
         let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
@@ -115,17 +192,20 @@ fn get_python_path() -> String {
 
         for path in &common_paths {
             if Path::new(path).exists() {
-                return path.clone();
+                return Ok(path.clone());
             }
         }
 
         // Try to find python3 in PATH as last resort
-        if let Ok(output) = Command::new("which").arg("python3").output() {
+        let mut which_cmd = Command::new("which");
+        which_cmd.arg("python3");
+        configure_command(&mut which_cmd);
+        if let Ok(output) = which_cmd.output() {
             if output.status.success() {
                 if let Ok(path) = String::from_utf8(output.stdout) {
                     let path = path.trim().to_string();
                     if !path.is_empty() && Path::new(&path).exists() {
-                        return path;
+                        return Ok(path);
                     }
                 }
             }
@@ -133,63 +213,22 @@ fn get_python_path() -> String {
     }
 
     // No Python found - provide helpful error message
-    panic!(
-        "\n\n\
-        ╔════════════════════════════════════════════════════════════════╗\n\
-        ║  ERROR: Python 3 interpreter not found                        ║\n\
-        ╚════════════════════════════════════════════════════════════════╝\n\
-        \n\
-        The imgstax desktop app requires Python 3 with imgstax installed\n\
-        for development mode.\n\
-        \n\
-        Solutions:\n\
-        \n\
-        1. Set the IMGSTAX_PYTHON_PATH environment variable:\n\
-           export IMGSTAX_PYTHON_PATH=/path/to/your/python3\n\
-        \n\
-        2. Ensure python3 is in your PATH:\n\
-           which python3  # Should return a valid path\n\
-        \n\
-        3. Install Python 3 in a standard location:\n\
-           - macOS: brew install python3\n\
-           - Linux: apt install python3 (or equivalent)\n\
-        \n\
-        After installing Python, make sure imgstax is installed:\n\
-           pip install -e .\n\
-        \n\
-        For more information, see the README.md\n\
-        \n"
-    );
-}
-
-/// Check if we're running in production mode (bundled binary available).
-/// Returns true if sidecar binary exists, false if we should use development mode.
-fn has_bundled_binary() -> bool {
-    // Check if sidecar binary exists by looking in expected location
-    let resource_dir = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|p| p.to_path_buf()));
-
-    if let Some(dir) = resource_dir {
-        // Tauri strips platform suffixes when bundling external binaries
-        // Source: binaries/imgstax-{arch}-{os} → Bundled: imgstax (or imgstax.exe on Windows)
-        let binary_name = if cfg!(target_os = "windows") {
-            "imgstax.exe"
-        } else {
-            "imgstax"
-        };
-
-        return dir.join(binary_name).exists();
-    }
-
-    false
+    Err(
+        "Python 3 interpreter not found. The imgstax desktop app requires \
+         Python 3 with imgstax installed for development mode. Solutions: \
+         (1) set IMGSTAX_PYTHON_PATH to your python3 path, \
+         (2) ensure python3 is in your PATH, \
+         (3) install Python 3 (macOS: brew install python3, Linux: apt install python3). \
+         After installing Python, install imgstax with: pip install -e ."
+            .to_string(),
+    )
 }
 
 /// Get the imgstax command to run, adapting to production vs development mode.
 /// Returns (command_path, base_args) to prepend before any subcommand flags.
 /// - Production: (path/to/imgstax[.exe], [])
 /// - Development: (python_path, ["-m", "imgstax"])
-fn get_imgstax_cmd() -> (String, Vec<String>) {
+fn get_imgstax_cmd() -> Result<(String, Vec<String>), String> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|p| p.to_path_buf()));
@@ -202,12 +241,12 @@ fn get_imgstax_cmd() -> (String, Vec<String>) {
         };
         let binary_path = dir.join(binary_name);
         if binary_path.exists() {
-            return (binary_path.to_string_lossy().to_string(), vec![]);
+            return Ok((binary_path.to_string_lossy().to_string(), vec![]));
         }
     }
 
     // Development: fall back to Python -m imgstax
-    (get_python_path(), vec!["-m".to_string(), "imgstax".to_string()])
+    Ok((get_python_path()?, vec!["-m".to_string(), "imgstax".to_string()]))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -259,30 +298,14 @@ fn get_app_version() -> String {
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    {
-        Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-
+    let mut command = Command::new("open");
     #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-
+    let mut command = Command::new("explorer");
     #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
+    let mut command = Command::new("xdg-open");
 
-    Ok(())
+    command.arg(&path);
+    spawn_and_reap(&mut command, "Failed to open folder")
 }
 
 // ==================== Notification Commands ====================
@@ -361,25 +384,22 @@ fn list_system_sounds() -> Vec<SoundFile> {
 fn play_notification_sound(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("afplay")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to play sound: {}", e))?;
-        Ok(())
+        let mut command = Command::new("afplay");
+        command.arg(&path);
+        spawn_and_reap(&mut command, "Failed to play sound")
     }
     #[cfg(target_os = "windows")]
     {
         let script = format!(
             "Add-Type -AssemblyName System.Windows.Forms; \
              [System.Media.SoundPlayer]::new('{}').PlaySync()",
-            path.replace('\'', "\\'")
+            path.replace('\'', "''")
         );
-        Command::new("powershell")
+        let mut command = Command::new("powershell");
+        command
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn()
-            .map_err(|e| format!("Failed to play sound: {}", e))?;
-        Ok(())
+            .creation_flags(0x08000000); // CREATE_NO_WINDOW
+        spawn_and_reap(&mut command, "Failed to play sound")
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -392,25 +412,22 @@ fn play_notification_sound(path: String) -> Result<(), String> {
 fn speak_notification(text: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("say")
-            .arg(&text)
-            .spawn()
-            .map_err(|e| format!("Failed to speak: {}", e))?;
-        Ok(())
+        let mut command = Command::new("say");
+        command.arg(&text);
+        spawn_and_reap(&mut command, "Failed to speak")
     }
     #[cfg(target_os = "windows")]
     {
         let script = format!(
             "Add-Type -AssemblyName System.Speech; \
              (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{}')",
-            text.replace('\'', "\\'")
+            text.replace('\'', "''")
         );
-        Command::new("powershell")
+        let mut command = Command::new("powershell");
+        command
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn()
-            .map_err(|e| format!("Failed to speak: {}", e))?;
-        Ok(())
+            .creation_flags(0x08000000); // CREATE_NO_WINDOW
+        spawn_and_reap(&mut command, "Failed to speak")
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -432,53 +449,16 @@ struct PostProcRecipe {
 
 #[tauri::command]
 async fn list_postproc_recipes() -> Result<Vec<PostProcRecipe>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let (cmd, mut args) = get_imgstax_cmd();
-        args.push("--postproc-list".to_string());
-
-        let mut command = Command::new(&cmd);
-        command.args(&args);
-
-        #[cfg(windows)]
-        command.creation_flags(0x08000000);
-
-        let output = command.output()
-            .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Python error: {}", stderr));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        serde_json::from_str(stdout.trim())
-            .map_err(|e| format!("Failed to parse recipes: {}", e))
-    }).await.map_err(|e| e.to_string())?
+    run_imgstax_json(vec!["--postproc-list".to_string()]).await
 }
 
 #[tauri::command]
-fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
-    args.push("--postproc-get".to_string());
-    args.push(recipe_name.clone());
-
-    let mut command = Command::new(&cmd);
-    command.args(&args);
-
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
-
-    let output = command.output()
-        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python error: {}", stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let recipe: serde_json::Value = serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("Failed to parse recipe: {}", e))?;
+async fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String> {
+    let recipe: serde_json::Value = run_imgstax_json(vec![
+        "--postproc-get".to_string(),
+        recipe_name.clone(),
+    ])
+    .await?;
 
     if recipe.is_null() {
         return Err(format!("Recipe not found: {}", recipe_name));
@@ -488,55 +468,33 @@ fn load_postproc_recipe(recipe_name: String) -> Result<serde_json::Value, String
 }
 
 #[tauri::command]
-fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
-    args.push("--postproc-save".to_string());
-    args.push(recipe_json);
-
-    let mut command = Command::new(&cmd);
-    command.args(&args);
-
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
-
-    let output = command.output()
-        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to save recipe: {}", stderr));
-    }
-
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(path)
+async fn save_postproc_recipe(recipe_json: String) -> Result<String, String> {
+    run_imgstax(vec!["--postproc-save".to_string(), recipe_json]).await
 }
 
 #[tauri::command]
-fn delete_postproc_recipe(recipe_path: String) -> Result<bool, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
-    args.push("--postproc-delete".to_string());
-    args.push(recipe_path);
-
-    let mut command = Command::new(&cmd);
-    command.args(&args);
-
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
-
-    let output = command.output()
-        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to delete recipe: {}", stderr));
-    }
-
-    let result_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(result_str == "true")
+async fn delete_postproc_recipe(recipe_path: String) -> Result<bool, String> {
+    let result = run_imgstax(vec!["--postproc-delete".to_string(), recipe_path]).await?;
+    Ok(result == "true")
 }
 
 #[tauri::command]
 async fn execute_postproc(
+    recipe_name: String,
+    working_directory: String,
+    window: Window,
+) -> Result<serde_json::Value, String> {
+    // The body below spawns a subprocess and reads it to completion, which can
+    // take minutes. Run it on a blocking thread so it never ties up an async
+    // runtime worker. `Window` is Send + Clone, so emitting from here is fine.
+    tauri::async_runtime::spawn_blocking(move || {
+        execute_postproc_blocking(recipe_name, working_directory, window)
+    })
+    .await
+    .map_err(|e| format!("Post-processing task failed: {}", e))?
+}
+
+fn execute_postproc_blocking(
     recipe_name: String,
     working_directory: String,
     window: Window,
@@ -550,7 +508,7 @@ async fn execute_postproc(
     let log_path_str = log_path.to_string_lossy().to_string();
 
     // Build command: bundled binary in production, python -m imgstax in dev
-    let (cmd, mut args) = get_imgstax_cmd();
+    let (cmd, mut args) = get_imgstax_cmd()?;
     args.push("--postproc-execute".to_string());
     args.push(recipe_name.clone());
     args.push("--working-dir".to_string());
@@ -562,9 +520,7 @@ async fn execute_postproc(
     command.args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
+    configure_command(&mut command);
 
     let mut child = command
         .spawn()
@@ -626,8 +582,18 @@ async fn execute_postproc(
         let _ = writeln!(log, "=== Python Process STDOUT ===");
     }
 
+    // Never `?` out of this loop: an early return would skip child.wait() and
+    // leave a zombie. Record the failure and fall through to the cleanup below.
+    let mut read_error: Option<String> = None;
+
     for line in reader.lines() {
-        let line = line.map_err(|e| format!("Failed to read output: {}", e))?;
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => {
+                read_error = Some(format!("Failed to read output: {}", e));
+                break;
+            }
+        };
 
         if let Some(ref mut log) = rust_log {
             let _ = writeln!(log, "[STDOUT] {}", line);
@@ -654,7 +620,7 @@ async fn execute_postproc(
         }
     }
 
-    // Wait for process to complete
+    // Wait for process to complete. Reached on every path out of the read loop.
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
 
     if let Some(ref mut log) = rust_log {
@@ -718,6 +684,10 @@ async fn execute_postproc(
         let _ = writeln!(log, "\n=== ERROR: No Final Result Received ===");
     }
 
+    if let Some(err) = read_error {
+        return Err(err);
+    }
+
     if !stderr_output.is_empty() {
         return Err(format!("Post-processing failed: {}", stderr_output));
     }
@@ -732,27 +702,8 @@ async fn execute_postproc(
 // ==================== End Post-Processing Commands ====================
 
 #[tauri::command]
-fn get_recipes() -> Result<Vec<Recipe>, String> {
-    let (cmd, mut args) = get_imgstax_cmd();
-    args.push("--get-recipes-json".to_string());
-
-    let mut command = Command::new(&cmd);
-    command.args(&args);
-
-    #[cfg(windows)]
-    command.creation_flags(0x08000000);
-
-    let output = command.output()
-        .map_err(|e| format!("Failed to execute imgstax: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Python error: {}", stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("Failed to parse recipes: {}", e))
+async fn get_recipes() -> Result<Vec<Recipe>, String> {
+    run_imgstax_json(vec!["--get-recipes-json".to_string()]).await
 }
 
 #[tauri::command]
@@ -859,9 +810,26 @@ struct FileInfo {
 }
 
 #[tauri::command]
-fn get_file_list(path: String) -> Result<Vec<FileInfo>, String> {
+fn get_file_list(app: tauri::AppHandle, path: String) -> Result<Vec<FileInfo>, String> {
     // Use Rust to get file list instead of Python (safer, no crash risk)
     let dir_path = Path::new(&path);
+
+    // This is the only command that hands image paths to the webview, so it is
+    // also where the asset protocol earns access to them. The static scope in
+    // tauri.conf.json is empty; each directory the user explicitly opens is
+    // added here, for this session only.
+    //
+    // The pattern must be canonical: Scope::is_allowed canonicalizes the
+    // requested path, but allow_directory stores what it is given verbatim, so
+    // an uncanonicalized "/tmp/frames" would never match "/private/tmp/frames".
+    // `false` keeps the grant to this directory's own files, matching the
+    // non-recursive listing below.
+    let canonical_dir = dir_path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve directory: {}", e))?;
+    app.asset_protocol_scope()
+        .allow_directory(&canonical_dir, false)
+        .map_err(|e| format!("Failed to grant preview access to directory: {}", e))?;
     let image_extensions = [
         ".jpg", ".jpeg", ".jpe", ".jfif",  // JPEG variants
         ".png",                             // PNG
@@ -952,12 +920,24 @@ fn list_user_recipes(app: tauri::AppHandle) -> Result<Vec<UserRecipeInfo>, Strin
         let path = entry.path();
 
         if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
-            let content = fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read recipe file: {}", e))?;
+            // One unreadable or malformed file must not hide every valid recipe,
+            // so skip it with a warning rather than failing the whole listing.
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(e) => {
+                    eprintln!("Skipping unreadable recipe {}: {}", path.display(), e);
+                    continue;
+                }
+            };
 
             // Parse YAML to get name and description
-            let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
-                .map_err(|e| format!("Failed to parse YAML: {}", e))?;
+            let yaml: serde_yaml::Value = match serde_yaml::from_str(&content) {
+                Ok(yaml) => yaml,
+                Err(e) => {
+                    eprintln!("Skipping malformed recipe {}: {}", path.display(), e);
+                    continue;
+                }
+            };
 
             let id = path.file_stem()
                 .and_then(|s| s.to_str())
@@ -1077,58 +1057,74 @@ fn import_user_recipe_from_file(import_path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn cancel_stacking() -> Result<(), String> {
-    let mut process_lock = STACKING_PROCESS.lock()
+    // Hold the lock across the signal. `start_stacking` must take the child out
+    // of this slot before it can reap it, so while we hold the lock the handle
+    // is live and its PID cannot have been recycled by the OS.
+    let mut slot = STACKING_PROCESS.lock()
         .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
 
-    if let Some(pid) = *process_lock {
-        #[cfg(unix)]
-        {
-            // On Unix systems (macOS, Linux), use kill command
-            use std::process::Command;
-            match Command::new("kill")
-                .arg("-TERM")
-                .arg(pid.to_string())
-                .output()
-            {
-                Ok(output) => {
-                    if !output.status.success() {
-                        eprintln!("kill failed: {}", String::from_utf8_lossy(&output.stderr));
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to execute kill: {}", e);
-                }
-            }
-        }
+    let child = match slot.as_mut() {
+        Some(child) => child,
+        None => return Err("No stacking process is currently running".to_string()),
+    };
 
-        #[cfg(windows)]
-        {
-            // On Windows, use taskkill command with /T to kill process tree
-            use std::process::Command;
-            match Command::new("taskkill")
-                .args(&["/PID", &pid.to_string(), "/T", "/F"])
-                .output()
-            {
-                Ok(output) => {
-                    if !output.status.success() {
-                        eprintln!("taskkill failed: {}", String::from_utf8_lossy(&output.stderr));
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to execute taskkill: {}", e);
-                }
-            }
+    #[cfg(unix)]
+    {
+        // SIGTERM rather than SIGKILL, so a future signal handler in the Python
+        // side could finish writing the current frame before exiting.
+        let pid = child.id() as libc::pid_t;
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+            let err = std::io::Error::last_os_error();
+            eprintln!("SIGTERM to stacking process failed: {}", err);
+            // Fall back to an unconditional kill.
+            child.kill().map_err(|e| format!("Failed to stop stacking process: {}", e))?;
         }
-
-        *process_lock = None;
-        Ok(())
-    } else {
-        Err("No stacking process is currently running".to_string())
     }
+
+    #[cfg(windows)]
+    {
+        // The bundled binary is a PyInstaller one-file build: the process we
+        // spawned is the bootloader, which re-execs the real interpreter as a
+        // child of its own. `Child::kill` is TerminateProcess on the bootloader
+        // alone and would strand that grandchild, so kill the tree with
+        // taskkill. Taking the PID from the handle we still own (and still hold
+        // the lock on) keeps the PID-reuse protection that the old
+        // PID-in-a-global version lacked.
+        let pid = child.id();
+        let killed_tree = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+
+        if !killed_tree {
+            child.kill().map_err(|e| format!("Failed to stop stacking process: {}", e))?;
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        child.kill().map_err(|e| format!("Failed to stop stacking process: {}", e))?;
+    }
+
+    // The slot is deliberately left populated: `start_stacking` owns the
+    // reaping, and clearing it here would leak a zombie on Unix.
+    Ok(())
 }
 
 #[tauri::command]
 async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<StackResult, String> {
+    // A stack runs for minutes; keep it off the async runtime's workers.
+    tauri::async_runtime::spawn_blocking(move || start_stacking_blocking(config, window))
+        .await
+        .map_err(|e| format!("Stacking task failed: {}", e))?
+}
+
+fn start_stacking_blocking(
+    config: StackConfig,
+    window: tauri::Window,
+) -> Result<StackResult, String> {
     // Construct absolute output path
     let repo_root = env!("CARGO_MANIFEST_DIR").to_string() + "/../..";
     let output_abs = if Path::new(&config.output_path).is_absolute() {
@@ -1194,29 +1190,16 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     base_args.push("--progress-json".to_string());
 
     // Get the command to execute (bundled binary or Python)
-    let (cmd_path, args) = if has_bundled_binary() {
-        // Production: use bundled binary
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(|p| p.to_path_buf()))
-            .ok_or("Failed to get executable directory")?;
+    let (cmd_path, mut args) = get_imgstax_cmd()?;
+    args.extend(base_args);
 
-        // Tauri strips platform suffixes when bundling
-        let binary_name = if cfg!(target_os = "windows") {
-            "imgstax.exe"
-        } else {
-            "imgstax"
-        };
-
-        let binary_path = exe_dir.join(binary_name);
-        (binary_path.to_string_lossy().to_string(), base_args)
-    } else {
-        // Development: use Python with -m imgstax
-        let python_path = get_python_path();
-        let mut python_args = vec!["-m".to_string(), "imgstax".to_string()];
-        python_args.extend(base_args);
-        (python_path, python_args)
-    };
+    // Refuse to start a second job rather than orphaning the first. Checked
+    // before the spawn so a rejected start leaves no stray process behind.
+    let mut slot = STACKING_PROCESS.lock()
+        .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
+    if slot.is_some() {
+        return Err("A stacking job is already running".to_string());
+    }
 
     // Execute command with std::process::Command
     let mut command = Command::new(&cmd_path);
@@ -1224,26 +1207,27 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    // On Windows, prevent console window from appearing
-    #[cfg(windows)]
-    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    configure_command(&mut command);
 
     let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to execute stacking: {} (command: {})", e, cmd_path))?;
 
-    // Store the process ID for potential cancellation
-    let pid = child.id();
-    {
-        let mut process_lock = STACKING_PROCESS.lock()
-            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
-        *process_lock = Some(pid);
-    }
-
-    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+    // Reap the child rather than leaking it if either pipe is missing; the slot
+    // has not been populated yet, so nothing else will clean it up.
+    let (stdout, stderr) = match (child.stdout.take(), child.stderr.take()) {
+        (Some(stdout), Some(stderr)) => (stdout, stderr),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Failed to capture stacking process output".to_string());
+        }
+    };
     let reader = BufReader::new(stdout);
+
+    // Hand the child to the global slot so cancel_stacking can signal it.
+    *slot = Some(child);
+    drop(slot);
 
     // Collect stderr in a background thread to prevent deadlock
     let stderr_handle = std::thread::spawn(move || {
@@ -1257,22 +1241,39 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
         output
     });
 
-    // Read JSON lines and emit progress to frontend
+    // Read JSON lines and emit progress to frontend. Never `?` out of this loop:
+    // the child still has to be reaped and the global slot cleared below.
+    let mut read_error: Option<String> = None;
     for line in reader.lines() {
-        let line = line.map_err(|e| format!("Failed to read output: {}", e))?;
-        if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&line) {
-            let _ = window.emit("stacking-progress", &progress);
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => {
+                read_error = Some(format!("Failed to read output: {}", e));
+                break;
+            }
+        };
+        match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(progress) => {
+                let _ = window.emit("stacking-progress", &progress);
+            }
+            // Anything the Python side prints that isn't a progress event (most
+            // often a warning) used to be discarded silently.
+            Err(_) => eprintln!("[imgstax] {}", line),
         }
     }
+
+    // Reclaim the child and reap it. Reached on every path out of the read loop,
+    // including a cancel, so no zombie is left and a new stack can start.
+    let mut child = STACKING_PROCESS.lock()
+        .map_err(|e| format!("Failed to acquire process lock: {}", e))?
+        .take()
+        .ok_or("Stacking process handle went missing")?;
 
     let status = child.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
     let stderr_output = stderr_handle.join().unwrap_or_default();
 
-    // Clear the process ID from storage since it's done
-    {
-        let mut process_lock = STACKING_PROCESS.lock()
-            .map_err(|e| format!("Failed to acquire process lock: {}", e))?;
-        *process_lock = None;
+    if let Some(err) = read_error {
+        return Err(err);
     }
 
     if !status.success() {
@@ -1305,7 +1306,8 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
     if config.export_recipe {
         let recipe_path = Path::new(&output_abs).join("recipe.yaml");
 
-        // Build recipe YAML content
+        // Build recipe YAML content. Settings must be nested under a
+        // `settings:` key — the Python recipe loader reads data['settings'].
         let mut recipe_content = format!(
             "# imgstax Recipe\n\
              # Generated automatically with exported images\n\
@@ -1313,10 +1315,11 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
              name: Exported Recipe\n\
              description: Configuration used for this stacking export\n\
              \n\
-             stacking: {}\n\
-             quality: {}\n\
-             png_compress_level: {}\n\
-             tiff_compression: {}\n",
+             settings:\n\
+             \x20 stacking: {}\n\
+             \x20 quality: {}\n\
+             \x20 png_compress_level: {}\n\
+             \x20 tiff_compression: {}\n",
             config.stacking,
             config.quality,
             config.png_compress_level,
@@ -1325,24 +1328,24 @@ async fn start_stacking(config: StackConfig, window: tauri::Window) -> Result<St
 
         // Add optional parameters if they were set
         if let Some(start_frame) = config.start_frame {
-            recipe_content.push_str(&format!("start_frame: {}\n", start_frame));
+            recipe_content.push_str(&format!("  start_frame: {}\n", start_frame));
         }
         if let Some(end_frame) = config.end_frame {
-            recipe_content.push_str(&format!("end_frame: {}\n", end_frame));
+            recipe_content.push_str(&format!("  end_frame: {}\n", end_frame));
         }
         if config.frame_interval > 1 {
-            recipe_content.push_str(&format!("frame_interval: {}\n", config.frame_interval));
+            recipe_content.push_str(&format!("  frame_interval: {}\n", config.frame_interval));
         }
         if config.trail_length > 0 {
-            recipe_content.push_str(&format!("trail_length: {}\n", config.trail_length));
+            recipe_content.push_str(&format!("  trail_length: {}\n", config.trail_length));
         }
         if config.trail_gradient {
-            recipe_content.push_str(&format!("trail_gradient: true\n"));
-            recipe_content.push_str(&format!("gradient_decay: {}\n", config.gradient_decay));
-            recipe_content.push_str(&format!("gradient_plateau: {}\n", config.gradient_plateau));
+            recipe_content.push_str("  trail_gradient: true\n");
+            recipe_content.push_str(&format!("  gradient_decay: {}\n", config.gradient_decay));
+            recipe_content.push_str(&format!("  gradient_plateau: {}\n", config.gradient_plateau));
         }
         if config.fade_out {
-            recipe_content.push_str("fade_out: true\n");
+            recipe_content.push_str("  fade_out: true\n");
         }
 
         // Write recipe file
@@ -1364,7 +1367,6 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
-    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

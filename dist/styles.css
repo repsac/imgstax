@@ -1073,6 +1073,13 @@ button.secondary:hover {
     background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
 }
 
+/* Without this override the gradient above out-specifies button:disabled,
+   so a disabled Start button looks fully clickable */
+.button-group .primary:disabled {
+    background: #ccc;
+    color: #888;
+}
+
 /* Queue badge */
 .queue-badge {
     background: var(--primary-color);
@@ -1485,8 +1492,8 @@ button.secondary:hover {
     color: white;
 }
 
-/* Indeterminate Progress Bar Animation */
-.progress-bar.indeterminate {
+/* Indeterminate Progress Bar Animation (JS toggles the class on the fill) */
+.progress-fill.indeterminate {
     background: linear-gradient(
         -45deg,
         var(--primary-color) 25%,

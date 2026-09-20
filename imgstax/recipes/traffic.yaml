@@ -17,9 +17,6 @@ settings:
   # High quality for crisp light trails
   quality: 92
 
-  # Process all frames
-  step: 1
-
 # Tips:
 #   - Best with stationary camera on tripod
 #   - Works great at dusk/night
