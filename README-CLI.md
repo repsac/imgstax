@@ -521,11 +521,21 @@ imgstax is designed to build animations from stacked image sequences.
 ## Version History
 
 ### v2.4.1 (Current)
-- **Webview hardening**: `script-src` tightened to `'self'` (no inline scripts); asset-protocol access is now granted per directory at runtime instead of exposing the whole filesystem
-- **Subprocess lifecycle**: the stacking job is tracked by process handle rather than PID, so cancel can no longer signal a recycled PID; starting a second job now returns a clean error instead of orphaning the first
-- **No more UI freezes**: recipe and post-processing lookups run off the UI thread
-- **Removed** the unused `tauri-plugin-fs` dependency
-- **Recipe listing** no longer fails outright when a single user recipe file is malformed
+
+**Stacking correctness**
+- **Accurate composites**: non-trail stacking now builds results incrementally instead of re-stacking the previous output file. `mean`, `summation`, `variance`, `stddev` and `median` produced wrong results before; only `maximum` and `minimum` were correct. Also ends the JPEG quality loss from re-encoding intermediate frames
+- **Image loading normalized**: EXIF orientation applied, 16/32-bit scaled to 8-bit instead of wrapping, palette/RGBA/CMYK converted to a common mode
+- **Values clamped** before 8-bit conversion, so sum-style stacking saturates instead of wrapping to black
+
+**Command line**
+- **Argument precedence fixed**: an explicitly passed value now overrides a recipe even when it happens to equal the default, so `--recipe foo -t 0` works
+- `--progress-json` emits per-frame events even when `tqdm` is installed
+- Fixed `--dryrun` crashing with trail recipes, and an `IndexError` from `--logfile`
+- Post-processing subcommands return structured errors and meaningful exit codes
+- Removed the dead `step:` recipe key; the `timelapse` recipe gets its intended `frame_interval: 2`
+
+**Compatibility**
+- **Minimum Python is now 3.9** (was 3.8)
 
 ### v2.4.0
 - **Post-Processing System**: Run shell commands (ffmpeg, etc.) after stacking completes
