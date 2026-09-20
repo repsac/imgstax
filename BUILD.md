@@ -83,11 +83,23 @@ npm install  # If not already done
 npm run tauri build
 ```
 
-This creates installers for your platform in `desktop-app/src-tauri/target/release/bundle/`:
+This creates installers in `desktop-app/src-tauri/target/release/bundle/`. Which
+ones you get is decided by `bundle.targets` in `tauri.conf.json`, currently
+`["msi", "dmg"]`:
 
-- **macOS**: `.dmg` and `.app` in `macos/`
-- **Windows**: `.exe` and `.msi` in `nsis/` and `msi/`
-- **Linux**: `.deb`, `.AppImage`, `.rpm` in respective folders
+- **macOS**: `.dmg` in `dmg/`. Note the `.app` does not survive the build: it is an
+  intermediate that the DMG step deletes once packaging finishes, leaving `macos/`
+  empty. To keep it, build with `npm run tauri build -- --bundles app`.
+- **Windows**: `.msi` in `msi/`. There is no NSIS `.exe` installer, because `nsis`
+  is not in `bundle.targets`. Add it there, or build with
+  `npm run tauri build -- --bundles nsis`, if you want one.
+- **Linux**: nothing. Neither `msi` nor `dmg` applies to Linux, so the build
+  produces the binary but no package. To get one, build with
+  `npm run tauri build -- --bundles deb,appimage` (or add those to
+  `bundle.targets`).
+
+The unbundled executable is always written to
+`desktop-app/src-tauri/target/release/` regardless of targets.
 
 ### 3. Testing the Build
 
@@ -95,11 +107,11 @@ Before distribution, test the built application:
 
 **macOS**:
 ```bash
-# Open the app
-open desktop-app/src-tauri/target/release/bundle/macos/imgstax.app
-
-# Or install from DMG
+# Install from DMG (the .app is removed after packaging, so mount the DMG)
 open desktop-app/src-tauri/target/release/bundle/dmg/imgstax_*.dmg
+
+# Or run the unbundled binary directly
+./desktop-app/src-tauri/target/release/imgstax-desktop
 ```
 
 **Windows**:
@@ -107,11 +119,12 @@ open desktop-app/src-tauri/target/release/bundle/dmg/imgstax_*.dmg
 # Install the MSI
 Start-Process desktop-app\src-tauri\target\release\bundle\msi\imgstax_*.msi
 
-# Or run directly
-.\desktop-app\src-tauri\target\release\imgstax.exe
+# Or run the unbundled binary directly. Note this is imgstax-desktop.exe:
+# imgstax.exe in the same folder is the bundled Python sidecar, not the GUI.
+.\desktop-app\src-tauri\target\release\imgstax-desktop.exe
 ```
 
-**Linux**:
+**Linux** (these paths exist only if you built with `--bundles deb,appimage`):
 ```bash
 # Install DEB package
 sudo dpkg -i desktop-app/src-tauri/target/release/bundle/deb/imgstax_*.deb
@@ -119,6 +132,9 @@ sudo dpkg -i desktop-app/src-tauri/target/release/bundle/deb/imgstax_*.deb
 # Or run AppImage
 chmod +x desktop-app/src-tauri/target/release/bundle/appimage/imgstax_*.AppImage
 ./desktop-app/src-tauri/target/release/bundle/appimage/imgstax_*.AppImage
+
+# Or run the unbundled binary directly
+./desktop-app/src-tauri/target/release/imgstax-desktop
 ```
 
 ### 4. Distribution
@@ -131,7 +147,8 @@ You can distribute the generated installers directly. Users do not need to insta
 3. Create a GitHub Release and upload:
    - macOS: `.dmg` file
    - Windows: `.msi` file
-   - Linux: `.deb` and `.AppImage` files
+   - Linux: `.deb` and `.AppImage` files, if you built them with
+     `--bundles deb,appimage` (they are not produced by a default build)
 
 **Direct Distribution**:
 - Users download and install the appropriate file for their platform
@@ -219,7 +236,8 @@ npm run tauri build
 
 **Output location**: `desktop-app/src-tauri/target/release/bundle/`
 - `.dmg` installer in `dmg/`
-- `.app` bundle in `macos/`
+- `macos/` is left empty: the `.app` is an intermediate the DMG step deletes.
+  Build with `--bundles app` if you need the bundle itself.
 
 **Code Signing** (for distribution):
 ```bash
@@ -326,10 +344,16 @@ npm install
 npm run tauri build
 ```
 
-**Output location**: `desktop-app/src-tauri/target/release/bundle/`
+**Output location**: a default build produces no Linux package, because
+`bundle.targets` in `tauri.conf.json` is `["msi", "dmg"]`. Build with
+`npm run tauri build -- --bundles deb,appimage` (or add the targets to the config)
+to get, under `desktop-app/src-tauri/target/release/bundle/`:
 - `.deb` package in `deb/`
 - `.AppImage` in `appimage/`
-- `.rpm` package in `rpm/` (if configured)
+- `.rpm` package in `rpm/` (add `rpm` to `--bundles` as well)
+
+The unbundled binary is at `desktop-app/src-tauri/target/release/imgstax-desktop`
+either way.
 
 ## Troubleshooting
 
